@@ -39,7 +39,11 @@ templates = Jinja2Templates(directory=PACKAGE / "templates")
 
 @app.get("/", response_class=HTMLResponse, include_in_schema=False)
 def studio(request: Request):
-    return templates.TemplateResponse(request=request, name="index.html", context={})
+    return templates.TemplateResponse(request=request, name="index.html", context={
+        "presets": {key: profile.model_dump() for key, profile in PRESETS.items()},
+        "default_profile": PRESETS["fx"],
+        "replay_date": REPLAY.strftime("%d %B %Y"),
+    })
 
 
 @app.get("/healthz", include_in_schema=False)
@@ -85,8 +89,11 @@ def get_briefing(briefing_id: UUID):
 def get_message(briefing_id: UUID, download: bool = False):
     briefing = saved_briefing(briefing_id)
     language = briefing.profile.language
-    replay_label = "Historische editie" if language == "nl" else "Historical replay"
-    voice_label = "Synthetische vertelstem" if language == "nl" else "Synthetic narration"
+    replay_label, voice_label = {
+        "en": ("Historical replay", "Synthetic narration"),
+        "nl": ("Historische editie", "Synthetische vertelstem"),
+        "de": ("Historische Ausgabe", "Synthetische Sprecherstimme"),
+    }[language]
     message = ["The Liquid Briefing", f"{replay_label} · {briefing.as_of:%Y-%m-%d} UTC · {voice_label}"]
     for story in briefing.stories:
         message.extend(("", story.title, story.summary))
@@ -125,5 +132,6 @@ def get_audio(briefing_id: UUID, download: bool = False):
     path = settings.audio_dir / row["filename"]
     if not path.is_file():
         raise HTTPException(404, "Cached audio is missing. Generate it again.")
-    return FileResponse(path, media_type="audio/mpeg", filename="liquid-briefing.mp3",
+    filename = f"liquid-briefing-{briefing_id.hex[:8]}.mp3" if download else "liquid-briefing.mp3"
+    return FileResponse(path, media_type="audio/mpeg", filename=filename,
                         content_disposition_type="attachment" if download else "inline")

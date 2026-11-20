@@ -2,354 +2,230 @@
 
 const byId = (id) => document.getElementById(id);
 const form = byId("profile");
-const edition = byId("edition");
+const listener = byId("listener");
+const generateButton = byId("generate");
+const playerTitle = byId("player-title");
+const note = byId("player-note");
 const status = byId("status");
 const audio = byId("audio");
-const play = byId("play");
-const playStatus = "Creating narration…";
-const storyDemo = byId("story-demo");
-const storyDemoHelp = byId("story-demo-help");
-const seek = byId("seek");
-const fallback = byId("local-audio");
-const textDownload = byId("download-text");
-const audioDownload = byId("download-audio");
-const presetButtons = [...document.querySelectorAll("[data-preset]")];
-const bars = Array.from({ length: 58 }, (_, index) => {
-  const bar = document.createElement("i");
-  const peak = Math.abs(Math.sin(index * 0.79) * Math.cos(index * 0.18));
-  bar.style.height = `${12 + 86 * peak}%`;
-  byId("hero-wave").append(bar);
-  return bar;
-});
-
-let replay;
-let activePreset = "fx";
-let briefing;
-let loadingAudio = false;
-let generating = false;
+const download = byId("download-audio");
+const retry = byId("retry-audio");
+const storiesPanel = byId("stories-panel");
+const stories = byId("stories");
+const presets = JSON.parse(byId("listener-presets").textContent);
 
 const COPY = {
   en: {
-    titles: { fx: "FX desk briefing", retail: "Dutch investor briefing", custom: "Your briefing" },
-    language: "English",
-    shortRead: "The short read",
-    expand: "Open a story’s transcript to verify its spoken claims.",
-    transcript: "Transcript & sources",
-    comparison: "Sources cite different estimates",
-    allegation: "Allegation",
-    revision: "Revised figure",
-    forecast: "Forecast",
+    language: "English", locale: "en-GB", briefing: "Your briefing", stories: "In this briefing",
+    transcript: "Transcript & sources", count: ["story", "stories"],
+    narration: "Synthetic narration", ready: "Audio is ready.",
+    creating: "Creating audio…", audioError: "Audio is unavailable. Try again.",
   },
   nl: {
-    titles: { fx: "Valutabriefing", retail: "Beursbriefing", custom: "Jouw briefing" },
-    language: "Nederlands",
-    shortRead: "In het kort",
-    expand: "Open het transcript van een verhaal om de bronnen te controleren.",
-    transcript: "Transcript & bronnen",
-    comparison: "Bronnen noemen verschillende ramingen",
-    allegation: "Beschuldiging",
-    revision: "Bijgesteld cijfer",
-    forecast: "Prognose",
+    language: "Nederlands", locale: "nl-NL", briefing: "Jouw briefing", stories: "In deze briefing",
+    transcript: "Transcript & bronnen", count: ["verhaal", "verhalen"],
+    narration: "Synthetische vertelstem", ready: "De audio is klaar.",
+    creating: "Audio maken…", audioError: "Audio is niet beschikbaar. Probeer het opnieuw.",
+  },
+  de: {
+    language: "Deutsch", locale: "de-DE", briefing: "Ihr Nachrichtenüberblick", stories: "In dieser Ausgabe",
+    transcript: "Transkript und Quellen", count: ["Beitrag", "Beiträge"],
+    narration: "Synthetische Sprecherstimme", ready: "Die Audioausgabe ist fertig.",
+    creating: "Audio wird erstellt…", audioError: "Audio ist nicht verfügbar. Bitte erneut versuchen.",
   },
 };
 
-function element(tag, className, content) {
+let activeRequest;
+let briefing;
+
+function element(tag, text, className) {
   const node = document.createElement(tag);
+  if (text) node.textContent = text;
   if (className) node.className = className;
-  if (content) node.textContent = content;
   return node;
 }
 
-function formatDate(iso, language = "en", year = false) {
-  return new Intl.DateTimeFormat(language === "nl" ? "nl-NL" : "en-GB", {
-    day: "numeric", month: "short", year: year ? "numeric" : undefined, timeZone: "UTC",
-  }).format(new Date(iso));
-}
-
-function timecode(seconds) {
-  if (!Number.isFinite(seconds)) return "—";
-  const total = Math.floor(seconds);
-  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
-}
-
-function sourceLinks(sources, language) {
-  const links = element("div", "source-links");
-  for (const source of sources) {
-    const date = formatDate(source.published_at, language);
-    const a = element("a", "source-link", `${source.publisher} · ${date} ↗`);
-    a.href = source.url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    a.title = [source.author, source.publisher, formatDate(source.published_at, language, true)].filter(Boolean).join(" · ");
-    links.append(a);
-  }
-  return links;
-}
-
-function storyCard(story, index, language) {
-  const copy = COPY[language];
-  const row = element("article", "story");
-  const count = element("span", "story-index", String(index + 1).padStart(2, "0"));
-  count.setAttribute("aria-hidden", "true");
-  const body = element("div", "story-body");
-  body.append(element("h3", "", story.title), element("p", "", story.summary));
-
-  const sources = new Map(story.claims.flatMap((claim) => claim.sources).map((source) => [source.id, source]));
-  const tools = element("div", "story-tools");
-  tools.append(sourceLinks(sources.values(), language));
-  body.append(tools);
-
-  const transcript = element("details", "transcript");
-  transcript.append(element("summary", "", copy.transcript));
-  const claims = element("ol", "claims");
+function storyCard(story, copy) {
+  const article = element("article", null, "story");
+  article.append(element("h3", story.title), element("p", story.summary));
+  const details = element("details");
+  const claims = element("div", null, "claims");
+  const format = new Intl.DateTimeFormat(copy.locale, { dateStyle: "medium", timeZone: "UTC" });
   for (const claim of story.claims) {
-    const item = element("li", "");
-    if (copy[claim.kind]) item.append(element("p", "claim-note", copy[claim.kind]));
-    item.append(element("p", "", claim.spoken), sourceLinks(claim.sources, language));
-    claims.append(item);
+    const section = element("div", null, "claim");
+    const links = element("ul", null, "source-links");
+    for (const source of claim.sources) {
+      const item = element("li");
+      const link = element("a", `${source.publisher} · ${format.format(new Date(source.published_at))}`);
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      item.append(link);
+      links.append(item);
+    }
+    section.append(element("p", claim.spoken), links);
+    claims.append(section);
   }
-  transcript.append(claims);
-  body.append(transcript);
-  row.append(count, body);
-  return row;
+  details.append(element("summary", copy.transcript), claims);
+  article.append(details);
+  return article;
 }
 
-function playerState() {
-  if (!briefing) return;
-  const label = audio.dataset.provider === "elevenlabs" ? "ElevenLabs" : audio.dataset.provider === "local" ? "Local voice" : "";
-  const count = briefing.stories.length;
-  const stories = briefing.profile.language === "nl"
-    ? `${count} ${count === 1 ? "verhaal" : "verhalen"}`
-    : `${count} ${count === 1 ? "story" : "stories"}`;
-  const narration = briefing.profile.language === "nl" ? "Synthetische vertelstem" : "Synthetic narration";
-  byId("edition-label").textContent = [stories, narration, label].filter(Boolean).join(" · ");
+function showStatus(message, language = "en") {
+  status.lang = language;
+  status.textContent = message;
 }
 
-function render(result, preset, storyId) {
-  briefing = result;
-  edition.lang = result.profile.language;
-  const copy = COPY[result.profile.language];
-  audio.pause();
-  audio.removeAttribute("src");
-  audio.load();
-  delete audio.dataset.provider;
-  audioDownload.hidden = true;
-  fallback.hidden = true;
-  seek.disabled = true;
-  seek.value = "0";
-  bars.forEach((bar) => bar.classList.remove("played"));
-  byId("current-time").textContent = "0:00";
-  const hasStories = result.stories.length > 0;
-  byId("duration").textContent = hasStories ? `~${timecode(result.estimated_seconds)}` : "—";
-  byId("edition-title").textContent = (storyId && result.stories[0]?.title) || copy.titles[preset];
-  byId("edition-language").textContent = copy.language;
-  byId("edition-date").textContent = formatDate(result.as_of, result.profile.language, true);
-  byId("readout-heading").textContent = copy.shortRead;
-  byId("readout-label").textContent = hasStories ? copy.expand : "";
-  playerState();
-
-  textDownload.href = `/api/briefings/${result.id}/message?download=true`;
-  textDownload.hidden = !hasStories;
-  const stories = byId("stories");
+function reset() {
+  activeRequest?.abort();
+  activeRequest = undefined;
+  briefing = undefined;
+  generateButton.disabled = false;
+  audio.hidden = true;
+  if (audio.hasAttribute("src")) {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  }
+  download.hidden = true;
+  download.removeAttribute("href");
+  retry.hidden = true;
+  storiesPanel.hidden = true;
   stories.replaceChildren();
-  stories.lang = result.profile.language;
-  if (hasStories) {
-    stories.append(...result.stories.map((story, index) => storyCard(story, index, result.profile.language)));
-  } else {
-    stories.append(element("p", "empty", result.notice));
-  }
-  status.textContent = hasStories ? result.notice || "" : "";
+  playerTitle.lang = "en";
+  playerTitle.textContent = COPY.en.briefing;
+  note.lang = "en";
+  note.textContent = "Your audio and stories will appear here.";
+  showStatus("");
 }
 
-async function jsonRequest(path, options = {}) {
+function render(result) {
+  const language = result.profile.language;
+  const copy = COPY[language];
+  const count = result.stories.length;
+  playerTitle.lang = language;
+  playerTitle.textContent = copy.briefing;
+  note.lang = language;
+  note.textContent = count
+    ? `${copy.language} · ${count} ${copy.count[count === 1 ? 0 : 1]} · ${copy.narration}`
+    : copy.language;
+  if (!count) {
+    showStatus(result.notice, language);
+    return;
+  }
+  storiesPanel.lang = language;
+  byId("stories-heading").textContent = copy.stories;
+  stories.replaceChildren(...result.stories.map((story) => storyCard(story, copy)));
+  storiesPanel.hidden = false;
+}
+
+async function jsonRequest(path, options) {
   const response = await fetch(path, options);
   if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    const detail = typeof error.detail === "string" ? error.detail : null;
-    throw new Error(detail || `Request failed (${response.status}). Check your settings and try again.`);
+    const error = new Error(`Request failed (${response.status})`);
+    error.status = response.status;
+    throw error;
   }
   return response.json();
 }
 
-function setPreset(preset) {
-  activePreset = preset;
-  for (const button of presetButtons) {
-    const selected = button.dataset.preset === preset;
-    button.classList.toggle("is-selected", selected);
-    button.setAttribute("aria-pressed", String(selected));
+async function prepareAudio(result, signal) {
+  const language = result.profile.language;
+  const copy = COPY[language];
+  const path = `/api/briefings/${result.id}/audio`;
+  const options = { method: "POST", signal };
+  retry.hidden = true;
+  showStatus(copy.creating, language);
+  try {
+    let asset;
+    try {
+      asset = await jsonRequest(path, options);
+    } catch (error) {
+      if (signal.aborted || error.status !== 502) throw error;
+      asset = await jsonRequest(`${path}?local=true`, options);
+    }
+    if (signal.aborted) return;
+    audio.src = asset.url;
+    audio.hidden = false;
+    download.href = `${asset.url}?download=true`;
+    download.hidden = false;
+    showStatus(copy.ready, language);
+  } catch {
+    if (signal.aborted) return;
+    showStatus(copy.audioError, language);
+    retry.hidden = false;
   }
 }
 
-function readProfile() {
-  const values = Object.fromEntries(new FormData(form));
-  delete values.date;
-  values.max_minutes = Number(values.max_minutes);
-  return values;
+async function run(action) {
+  const controller = new AbortController();
+  activeRequest = controller;
+  generateButton.disabled = true;
+  try {
+    await action(controller.signal);
+  } finally {
+    if (activeRequest === controller) {
+      activeRequest = undefined;
+      generateButton.disabled = false;
+    }
+  }
 }
 
-function updateDemoButton() {
-  storyDemo.disabled = !replay || generating || loadingAudio;
-}
+form.addEventListener("input", reset);
+listener.addEventListener("change", () => {
+  const preset = presets[listener.value];
+  if (preset) {
+    for (const name of ["interests", "language", "max_minutes", "depth"]) {
+      byId(name).value = preset[name];
+    }
+  } else {
+    byId("interests").focus();
+    byId("interests").select();
+  }
+});
 
-function updatePlayButton() {
-  play.disabled = generating || loadingAudio || !briefing?.stories.length;
-  play.classList.toggle("is-playing", !audio.paused);
-  play.setAttribute("aria-busy", String(loadingAudio));
-  const label = audio.paused ? "Play briefing" : "Pause briefing";
-  play.setAttribute("aria-label", loadingAudio ? playStatus : label);
-}
-
-async function generate({ useAI = true, storyId = null } = {}) {
-  if (generating || (!storyId && !form.reportValidity())) return;
-  const preset = activePreset;
-  const profile = readProfile();
-  if (storyId) profile.interests = "U.S. producer prices";
-  if (!profile.interests.trim()) {
-    status.textContent = "Enter the topics you want to hear about.";
+form.addEventListener("submit", (event) => {
+  event.preventDefault();
+  if (activeRequest) return;
+  const profile = { ...presets[listener.value], ...Object.fromEntries(new FormData(form)) };
+  profile.max_minutes = Number(profile.max_minutes);
+  profile.interests = profile.interests.trim();
+  if (!profile.interests) {
+    showStatus("Enter the topics you want to hear about.");
     byId("interests").focus();
     return;
   }
-  generating = true;
-  updateDemoButton();
-  const asOf = storyId ? replay.as_of : `${byId("replay-date").value}T23:59:59Z`;
-  edition.setAttribute("aria-busy", "true");
-  byId("generate").disabled = true;
-  updatePlayButton();
-  audio.pause();
-  fallback.hidden = true;
-  status.textContent = "Building briefing…";
-  try {
-    const result = await jsonRequest("/api/briefings", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile, as_of: asOf, use_ai: useAI, story_id: storyId }),
-    });
-    render(result, preset, storyId);
-    return result;
-  } catch (error) {
-    status.textContent = error.message;
-  } finally {
-    edition.setAttribute("aria-busy", "false");
-    byId("generate").disabled = false;
-    generating = false;
-    updateDemoButton();
-    updatePlayButton();
-  }
-}
-
-async function playBriefing(local = false) {
-  if (!briefing?.stories.length || loadingAudio || generating) return;
-  const currentId = briefing.id;
-  if (!local && audio.getAttribute("src")) {
-    if (audio.paused) await audio.play().catch(() => { status.textContent = "Playback could not start. Try again."; });
-    else audio.pause();
-    return;
-  }
-
-  loadingAudio = true;
-  updateDemoButton();
-  updatePlayButton();
-  fallback.hidden = true;
-  status.textContent = playStatus;
-  try {
-    const result = await jsonRequest(`/api/briefings/${currentId}/audio?local=${local}`, { method: "POST" });
-    if (briefing.id !== currentId || generating) return;
-    audio.src = result.url;
-    audio.dataset.provider = result.provider;
-    playerState();
-    audioDownload.href = `${result.url}?download=true`;
-    audioDownload.hidden = false;
-    status.textContent = "";
-    await audio.play().catch(() => { status.textContent = "Audio is ready. Press Play to listen."; });
-  } catch (error) {
-    if (briefing.id !== currentId || generating) return;
-    status.textContent = error.message;
-    fallback.hidden = local || replay.audio_provider !== "elevenlabs";
-  } finally {
-    loadingAudio = false;
-    updateDemoButton();
-    updatePlayButton();
-  }
-}
-
-function updateTimeline() {
-  if (!Number.isFinite(audio.duration)) return;
-  const progress = audio.currentTime / audio.duration;
-  seek.disabled = false;
-  seek.value = String(Math.round(progress * 1000));
-  seek.setAttribute("aria-valuetext", `${timecode(audio.currentTime)} of ${timecode(audio.duration)}`);
-  byId("current-time").textContent = timecode(audio.currentTime);
-  byId("duration").textContent = timecode(audio.duration);
-  bars.forEach((bar, index) => bar.classList.toggle("played", index < bars.length * progress));
-}
-
-for (const event of ["loadedmetadata", "timeupdate"]) audio.addEventListener(event, updateTimeline);
-for (const event of ["play", "pause", "ended"]) audio.addEventListener(event, updatePlayButton);
-audio.addEventListener("error", () => {
-  if (!audio.getAttribute("src")) return;
-  audio.removeAttribute("src");
-  delete audio.dataset.provider;
-  audioDownload.hidden = true;
-  seek.disabled = true;
-  playerState();
-  status.textContent = "The audio could not be loaded. Press Play to retry.";
-});
-seek.addEventListener("input", () => {
-  if (Number.isFinite(audio.duration)) audio.currentTime = Number(seek.value) * audio.duration / 1000;
-});
-play.addEventListener("click", () => playBriefing());
-fallback.addEventListener("click", () => playBriefing(true));
-storyDemo.parentElement.addEventListener("pointerenter", () => { storyDemoHelp.hidden = false; });
-storyDemo.addEventListener("focus", () => { storyDemoHelp.hidden = false; });
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape") storyDemoHelp.hidden = true;
-});
-storyDemo.addEventListener("click", async () => {
-  if (matchMedia("(hover: hover)").matches) storyDemoHelp.hidden = true;
-  edition.scrollIntoView({ block: "nearest" });
-  const result = await generate({ storyId: storyDemo.dataset.storyId });
-  if (result?.stories.length) await playBriefing();
-});
-
-form.addEventListener("input", (event) => {
-  if (event.target.name !== "date") setPreset("custom");
-});
-form.addEventListener("submit", (event) => {
-  event.preventDefault();
-  generate();
-});
-
-for (const button of presetButtons) {
-  button.addEventListener("click", () => {
-    const preset = button.dataset.preset;
-    if (generating) return;
-    setPreset(preset);
-    if (preset === "custom") {
-      byId("interests").focus();
-      byId("interests").select();
-      return;
+  reset();
+  showStatus("Building your briefing…");
+  run(async (signal) => {
+    try {
+      const result = await jsonRequest("/api/briefings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile }),
+        signal,
+      });
+      if (signal.aborted) return;
+      briefing = result;
+      render(result);
+      if (result.stories.length) await prepareAudio(result, signal);
+    } catch {
+      if (!signal.aborted) showStatus("Briefing unavailable. Try generating it again.");
     }
-    if (!replay) return;
-    for (const [name, value] of Object.entries(replay.presets[preset])) byId(name).value = value;
-    generate();
   });
-}
+});
 
-async function start() {
-  try {
-    replay = await jsonRequest("/api/replay");
-    byId("replay-date").value = replay.as_of.slice(0, 10);
-    const count = replay.article_count.toLocaleString("en-US");
-    byId("replay-stats").textContent = replay.article_count > 0
-      ? `Replay · ${count} articles · ${replay.stories} reviewed stories`
-      : "Replay data unavailable";
-    updateDemoButton();
-    await generate({ useAI: false });
-  } catch {
-    edition.setAttribute("aria-busy", "false");
-    byId("edition-label").textContent = "Replay unavailable";
-    status.textContent = "The replay could not be loaded. Refresh the page to try again.";
-  }
-}
+retry.addEventListener("click", () => {
+  if (briefing && !activeRequest) run((signal) => prepareAudio(briefing, signal));
+});
 
-start();
+audio.addEventListener("error", () => {
+  if (!briefing || !audio.hasAttribute("src") || !audio.error) return;
+  const language = briefing.profile.language;
+  audio.hidden = true;
+  audio.removeAttribute("src");
+  download.hidden = true;
+  download.removeAttribute("href");
+  showStatus(COPY[language].audioError, language);
+  retry.hidden = false;
+});

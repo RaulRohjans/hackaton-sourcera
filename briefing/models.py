@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 REPLAY = datetime(2026, 11, 18, 23, 59, 59, tzinfo=timezone.utc)
-Language = Literal["en", "nl"]
+Language = Literal["en", "nl", "de"]
 Tone = Literal["professional", "calm", "conversational"]
 Voice = Literal["feminine", "masculine"]
 
@@ -38,6 +38,8 @@ PRESETS = {
     "retail": Profile(interests="Nvidia, Intel, techaandelen, goud",
                       language="nl", max_minutes=1, depth="essentials",
                       tone="conversational", voice="feminine"),
+    "wildcard": Profile(interests="Luftfahrt, Reisen, Zauberwürfel, Kultur",
+                        language="de", max_minutes=1, depth="essentials"),
 }
 
 

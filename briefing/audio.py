@@ -18,6 +18,11 @@ from .models import Briefing
 LOG = logging.getLogger(__name__)
 ELEVENLABS_FORMAT = "mp3_44100_128"
 SPEED = {"calm": 0.9, "professional": 1.0, "conversational": 1.04}
+MAC_VOICES = {
+    "en": {"feminine": "Flo (English (US))", "masculine": "Reed (English (US))", "fallback": "Samantha"},
+    "nl": {"feminine": "Ellen", "masculine": "Xander", "fallback": "Xander"},
+    "de": {"feminine": "Petra", "masculine": "Markus", "fallback": "Anna"},
+}
 LOCKS = tuple(Lock() for _ in range(16))
 
 
@@ -80,20 +85,14 @@ def local_speech(briefing: Briefing, directory: Path, output: Path) -> None:
     rate = round(153 * SPEED[profile.tone])
     script_file = directory / "script.txt"
     script_file.write_text(briefing.script, encoding="utf-8")
-    mac_voice = {
-        ("en", "feminine"): "Flo (English (US))",
-        ("en", "masculine"): "Reed (English (US))",
-        ("nl", "masculine"): "Xander",
-        ("nl", "feminine"): "Ellen",
-    }
     if espeak := shutil.which("espeak-ng"):
         source = directory / "speech.wav"
         variant = "+f3" if profile.voice == "feminine" else "+m3"
-        speak = [espeak, "-v", profile.language + variant, "-s", str(rate),
+        speak = [espeak, "-v", profile.language + variant, "-b", "1", "-s", str(rate),
                  "-w", str(source), "-f", str(script_file)]
     elif sys.platform == "darwin" and (say := shutil.which("say")):
         source = directory / "speech.aiff"
-        speak = [say, "-v", mac_voice[profile.language, profile.voice], "-r", str(rate),
+        speak = [say, "-v", MAC_VOICES[profile.language][profile.voice], "-r", str(rate),
                  "-o", str(source), "-f", str(script_file)]
     else:
         raise AudioError("Local narration requires espeak-ng or macOS speech.")
@@ -107,9 +106,8 @@ def local_speech(briefing: Briefing, directory: Path, output: Path) -> None:
 
     try:
         result = subprocess.run(speak, check=False, capture_output=True, timeout=25)
-        if result.returncode and sys.platform == "darwin" and speak[0] == shutil.which("say"):
-            # Installable macOS voices vary. Xander and Samantha ship with the system.
-            speak[2] = {"en": "Samantha", "nl": "Xander"}[profile.language]
+        if result.returncode and source.suffix == ".aiff":
+            speak[2] = MAC_VOICES[profile.language]["fallback"]
             result = subprocess.run(speak, check=False, capture_output=True, timeout=25)
         if result.returncode:
             raise AudioError("The local speech engine could not read this briefing.")
@@ -132,7 +130,7 @@ def synthesize(settings: Settings, briefing: Briefing, local: bool) -> AudioAsse
         provider = "local"
         payload = None
         cache_input = [
-            briefing.script, provider, f"local-v2-{sys.platform}", profile.voice,
+            briefing.script, provider, f"local-v3-{sys.platform}", profile.voice,
             profile.language, profile.tone, "mp3_44100_64",
         ]
     key = sha256(json.dumps(cache_input, ensure_ascii=False).encode()).hexdigest()

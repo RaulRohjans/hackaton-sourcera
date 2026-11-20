@@ -15,7 +15,8 @@ from .models import Briefing, BriefingRequest, BriefingStory, Claim, Source, Usa
 from .storage import connect
 
 LOG = logging.getLogger(__name__)
-STOP_WORDS = {"us", "uk", "the", "and", "of", "in", "on", "for", "de", "en", "van", "het"}
+STOP_WORDS = {"us", "uk", "the", "and", "of", "in", "on", "for", "de", "en", "van", "het",
+              "der", "die", "das", "und", "im", "von", "für"}
 
 SYNONYMS = {
     "cpi": ("inflation", "inflatie"),
@@ -241,12 +242,36 @@ INTRO = {
         "calm": "Laten we rustig het nieuws doornemen, met een synthetische vertelstem.",
         "conversational": "Hoi. Dit is je korte nieuwsoverzicht, voorgelezen door een synthetische stem.",
     },
+    "de": {
+        "professional": "Hier ist Ihr persönlicher Nachrichtenüberblick, vorgelesen von einer KI-Stimme.",
+        "calm": "Willkommen. Nehmen wir uns einen Moment Zeit für die Nachrichten, vorgelesen von einer KI-Stimme.",
+        "conversational": "Hallo! Hier ist dein kurzer Nachrichtenüberblick, vorgelesen von einer KI-Stimme.",
+    },
 }
 MONTHS = {
     "en": ("January", "February", "March", "April", "May", "June", "July", "August",
            "September", "October", "November", "December"),
     "nl": ("januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus",
            "september", "oktober", "november", "december"),
+    "de": ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
+           "September", "Oktober", "November", "Dezember"),
+}
+NOTICES = {
+    "en": {
+        "editor": "OpenAI editing was unavailable. The briefing uses the reviewed local selection.",
+        "no_match": "No reviewed stories matched your interests for this edition.",
+        "no_story": "This story is unavailable for this replay date.",
+    },
+    "nl": {
+        "editor": "De redactie via OpenAI was niet beschikbaar. De briefing gebruikt de lokaal gecontroleerde selectie.",
+        "no_match": "Geen gecontroleerde verhalen passen bij je interesses voor deze editie.",
+        "no_story": "Dit verhaal is niet beschikbaar voor deze editie.",
+    },
+    "de": {
+        "editor": "Die Auswahl über OpenAI war nicht verfügbar. Die Ausgabe nutzt die lokal geprüfte Auswahl.",
+        "no_match": "In dieser Ausgabe passt kein geprüfter Beitrag zu Ihren Interessen.",
+        "no_story": "Dieser Beitrag ist für das gewählte Datum nicht verfügbar.",
+    },
 }
 
 
@@ -256,6 +281,8 @@ def attribution(source: Source, language: str) -> str:
     outlet = "Action Forex" if source.publisher == "ActionForex" else source.publisher
     if language == "nl":
         return f"Volgens {outlet}, op {published.day} {month}."
+    if language == "de":
+        return f"{outlet} berichtete am {published.day}. {month}."
     return f"From {outlet}, published {month} {published.day}."
 
 
@@ -271,7 +298,7 @@ def assemble(settings: Settings, catalog: list[VerifiedStory], request: Briefing
         plan, usage = choose_with_openai(settings, request, shortlisted, story_limit, fact_limit)
         selection = checked_selection(plan, shortlisted, story_limit, fact_limit)
         if selection is None:
-            notice = "OpenAI editing was unavailable. The briefing uses the reviewed local selection."
+            notice = NOTICES[language]["editor"]
 
     editor = "openai" if selection is not None else "reviewed"
     if selection is None:
@@ -310,11 +337,7 @@ def assemble(settings: Settings, catalog: list[VerifiedStory], request: Briefing
             ))
 
     if not story_results:
-        notice = ("Geen gecontroleerde verhalen passen bij je interesses voor deze editie." if language == "nl"
-                  else "No reviewed stories matched those interests for this replay date.")
-        if request.story_id is not None:
-            notice = ("Dit verhaal is niet beschikbaar voor deze editie." if language == "nl"
-                      else "This story is unavailable for this replay date.")
+        notice = NOTICES[language]["no_match" if request.story_id is None else "no_story"]
     script = "\n\n".join(paragraphs) if story_results else ""
     overview = "\n\n".join(f"{story.title}\n{story.summary}" for story in story_results)
     return Briefing(
