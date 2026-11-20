@@ -121,6 +121,8 @@ def rank(catalog: list[VerifiedStory], request: BriefingRequest) -> list[Candida
                 if f" {key} " in f" {query} " for topic in topics}
     candidates = []
     for story in catalog:
+        if request.story_id is not None and story.review.id != request.story_id:
+            continue
         age = as_of - story.published_at
         if not timedelta(0) <= age <= timedelta(days=7):
             continue
@@ -138,7 +140,7 @@ def rank(catalog: list[VerifiedStory], request: BriefingRequest) -> list[Candida
             elif overlap:
                 matches.append(topic)
                 match_scores.append(0.6 * len(overlap))
-        if not matches:
+        if not matches and request.story_id is None:
             continue
 
         claims = []
@@ -158,7 +160,7 @@ def rank(catalog: list[VerifiedStory], request: BriefingRequest) -> list[Candida
             claims.append(Claim(id=fact.id, kind=fact.kind, text=text, spoken=speech, sources=eligible))
         if not claims or claims[0].id != story.review.facts[0].id:
             continue
-        score = 2 * max(match_scores) + sum(match_scores) + story.review.priority * 0.2
+        score = 2 * max(match_scores, default=0) + sum(match_scores) + story.review.priority * 0.2
         score -= age.total_seconds() / 86400 * 0.13
         candidates.append(Candidate(
             story.review.id, story.review.titles[profile.language], score, matches, claims
@@ -310,6 +312,9 @@ def assemble(settings: Settings, catalog: list[VerifiedStory], request: Briefing
     if not story_results:
         notice = ("Geen gecontroleerde verhalen passen bij je interesses voor deze editie." if language == "nl"
                   else "No reviewed stories matched those interests for this replay date.")
+        if request.story_id is not None:
+            notice = ("Dit verhaal is niet beschikbaar voor deze editie." if language == "nl"
+                      else "This story is unavailable for this replay date.")
     script = "\n\n".join(paragraphs) if story_results else ""
     overview = "\n\n".join(f"{story.title}\n{story.summary}" for story in story_results)
     return Briefing(

@@ -29,6 +29,7 @@ class BriefingRequest(BaseModel):
     profile: Profile
     as_of: AwareDatetime = REPLAY
     use_ai: bool = True
+    story_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 PRESETS = {

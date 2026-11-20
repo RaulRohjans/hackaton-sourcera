@@ -35,7 +35,7 @@ Use `.venv/bin/python -m briefing.ingest --force` to rerun ingestion. Restart th
 
 ## Five-minute demo
 
-1. Start with **FX desk** on 18 November 2026. Play the English edition and expand **U.S. producer prices**. Verify the 0.3% monthly figure, 0.4% forecast and 6.5% annual figure in the linked Invezz and ActionForex coverage.
+1. Click **Run U.S. producer-price story** for the one-story replay on 18 November 2026. Open **Transcript & sources** to verify the 0.3% monthly figure, 0.4% forecast and 6.5% annual figure in the linked Invezz and ActionForex coverage.
 2. Switch to **Dutch investor** on the same date. Play the Dutch briefing and compare its story selection and level of detail. Intel’s story preserves the distinction between shareholders’ allegations and established facts.
 3. Choose **Custom listener**, enter `Bitcoin, gold`, and generate a new edition. Try `Nvidia` with **Analytical** depth to see the two reported analyst estimates side by side. Change the replay date to see how the publication cutoff affects available stories.
 4. Download **Text** and **MP3**. The text is independently readable and carries the links. The audio adds context and names the reporting outlet and date.
@@ -45,7 +45,7 @@ Use `.venv/bin/python -m briefing.ingest --force` to rerun ingestion. Restart th
 | Endpoint | Result |
 | --- | --- |
 | `GET /api/replay` | Replay defaults, preset profiles and ingestion statistics |
-| `POST /api/briefings` | Saves a briefing and returns its ID, short read, spoken claims, sources and any OpenAI token usage |
+| `POST /api/briefings` | Saves a briefing and returns its ID, short read, claims and sources. Pass an optional `story_id` to focus on one reviewed story. |
 | `GET /api/briefings/{id}` | Retrieves the saved briefing JSON |
 | `POST /api/briefings/{id}/audio` | Creates or reuses the MP3 and returns its playback URL |
 | `GET /api/briefings/{id}/audio` | Streams the MP3. Add `?download=true` for an attachment. |

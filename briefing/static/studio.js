@@ -6,6 +6,7 @@ const edition = byId("edition");
 const status = byId("status");
 const audio = byId("audio");
 const play = byId("play");
+const storyDemo = byId("story-demo");
 const seek = byId("seek");
 const fallback = byId("local-audio");
 const textDownload = byId("download-text");
@@ -122,7 +123,7 @@ function playerState() {
   byId("edition-label").textContent = [stories, narration, label].filter(Boolean).join(" · ");
 }
 
-function render(result, preset) {
+function render(result, preset, storyId) {
   briefing = result;
   edition.lang = result.profile.language;
   const copy = COPY[result.profile.language];
@@ -138,7 +139,7 @@ function render(result, preset) {
   byId("current-time").textContent = "0:00";
   const hasStories = result.stories.length > 0;
   byId("duration").textContent = hasStories ? `~${timecode(result.estimated_seconds)}` : "—";
-  byId("edition-title").textContent = copy.titles[preset];
+  byId("edition-title").textContent = (storyId && result.stories[0]?.title) || copy.titles[preset];
   byId("edition-language").textContent = copy.language;
   byId("edition-date").textContent = formatDate(result.as_of, result.profile.language, true);
   byId("readout-heading").textContent = copy.shortRead;
@@ -184,18 +185,23 @@ function readProfile() {
   return values;
 }
 
-async function generate(useAI = true) {
-  if (generating || !form.reportValidity()) return;
-  generating = true;
+function updateDemoButton() {
+  storyDemo.disabled = !replay || generating || loadingAudio;
+}
+
+async function generate({ useAI = true, storyId = null } = {}) {
+  if (generating || (!storyId && !form.reportValidity())) return;
   const preset = activePreset;
   const profile = readProfile();
+  if (storyId) profile.interests = "U.S. producer prices";
   if (!profile.interests.trim()) {
-    generating = false;
     status.textContent = "Enter the topics you want to hear about.";
     byId("interests").focus();
     return;
   }
-  const asOf = `${byId("replay-date").value}T23:59:59Z`;
+  generating = true;
+  updateDemoButton();
+  const asOf = storyId ? replay.as_of : `${byId("replay-date").value}T23:59:59Z`;
   edition.setAttribute("aria-busy", "true");
   byId("generate").disabled = true;
   play.disabled = true;
@@ -206,15 +212,17 @@ async function generate(useAI = true) {
     const result = await jsonRequest("/api/briefings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile, as_of: asOf, use_ai: useAI }),
+      body: JSON.stringify({ profile, as_of: asOf, use_ai: useAI, story_id: storyId }),
     });
-    render(result, preset);
+    render(result, preset, storyId);
+    return result;
   } catch (error) {
     status.textContent = error.message;
   } finally {
     edition.setAttribute("aria-busy", "false");
     byId("generate").disabled = false;
     generating = false;
+    updateDemoButton();
     play.disabled = loadingAudio || !briefing?.stories.length;
   }
 }
@@ -229,6 +237,7 @@ async function playBriefing(local = false) {
   }
 
   loadingAudio = true;
+  updateDemoButton();
   play.disabled = true;
   fallback.hidden = true;
   status.textContent = "Creating narration…";
@@ -248,6 +257,7 @@ async function playBriefing(local = false) {
     fallback.hidden = local || replay.audio_provider !== "elevenlabs";
   } finally {
     loadingAudio = false;
+    updateDemoButton();
     play.disabled = generating || !briefing?.stories.length;
   }
 }
@@ -284,6 +294,11 @@ seek.addEventListener("input", () => {
 });
 play.addEventListener("click", () => playBriefing());
 fallback.addEventListener("click", () => playBriefing(true));
+storyDemo.addEventListener("click", async () => {
+  edition.scrollIntoView({ block: "nearest" });
+  const result = await generate({ storyId: storyDemo.dataset.storyId });
+  if (result?.stories.length) await playBriefing();
+});
 
 form.addEventListener("input", (event) => {
   if (event.target.name !== "date") setPreset("custom");
@@ -317,7 +332,8 @@ async function start() {
     byId("replay-stats").textContent = replay.article_count > 0
       ? `Replay · ${count} articles · ${replay.stories} reviewed stories`
       : "Replay data unavailable";
-    await generate(false);
+    updateDemoButton();
+    await generate({ useAI: false });
   } catch {
     edition.setAttribute("aria-busy", "false");
     byId("edition-label").textContent = "Replay unavailable";
