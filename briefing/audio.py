@@ -18,6 +18,11 @@ from .models import Briefing
 LOG = logging.getLogger(__name__)
 ELEVENLABS_FORMAT = "mp3_44100_128"
 SPEED = {"calm": 0.9, "professional": 1.0, "conversational": 1.04}
+MAC_VOICES = {
+    "en": {"feminine": ("Flo (English (US))", "Samantha"), "masculine": ("Reed (English (US))", "Alex")},
+    "nl": {"feminine": ("Ellen",), "masculine": ("Xander",)},
+    "de": {"feminine": ("Petra", "Anna"), "masculine": ("Markus",)},
+}
 LOCKS = tuple(Lock() for _ in range(16))
 
 
@@ -54,7 +59,7 @@ def elevenlabs_payload(settings: Settings, briefing: Briefing) -> dict:
 
 def elevenlabs(settings: Settings, voice: str, payload: dict, output: Path) -> None:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", voice):
-        raise AudioError("Check the ElevenLabs voice ID in the server configuration.")
+        raise AudioError("Check the ElevenLabs voice ID in the server configuration.", 502)
     try:
         with httpx.Client(timeout=httpx.Timeout(45.0, connect=5.0)) as client:
             response = client.post(
@@ -80,20 +85,15 @@ def local_speech(briefing: Briefing, directory: Path, output: Path) -> None:
     rate = round(153 * SPEED[profile.tone])
     script_file = directory / "script.txt"
     script_file.write_text(briefing.script, encoding="utf-8")
-    mac_voice = {
-        ("en", "feminine"): "Flo (English (US))",
-        ("en", "masculine"): "Reed (English (US))",
-        ("nl", "masculine"): "Xander",
-        ("nl", "feminine"): "Ellen",
-    }
     if espeak := shutil.which("espeak-ng"):
         source = directory / "speech.wav"
         variant = "+f3" if profile.voice == "feminine" else "+m3"
-        speak = [espeak, "-v", profile.language + variant, "-s", str(rate),
+        speak = [espeak, "-v", profile.language + variant, "-b", "1", "-s", str(rate),
                  "-w", str(source), "-f", str(script_file)]
     elif sys.platform == "darwin" and (say := shutil.which("say")):
         source = directory / "speech.aiff"
-        speak = [say, "-v", mac_voice[profile.language, profile.voice], "-r", str(rate),
+        voices = iter(MAC_VOICES[profile.language][profile.voice])
+        speak = [say, "-v", next(voices), "-r", str(rate),
                  "-o", str(source), "-f", str(script_file)]
     else:
         raise AudioError("Local narration requires espeak-ng or macOS speech.")
@@ -107,10 +107,14 @@ def local_speech(briefing: Briefing, directory: Path, output: Path) -> None:
 
     try:
         result = subprocess.run(speak, check=False, capture_output=True, timeout=25)
-        if result.returncode and sys.platform == "darwin" and speak[0] == shutil.which("say"):
-            # Installable macOS voices vary. Xander and Samantha ship with the system.
-            speak[2] = {"en": "Samantha", "nl": "Xander"}[profile.language]
-            result = subprocess.run(speak, check=False, capture_output=True, timeout=25)
+        if result.returncode and source.suffix == ".aiff":
+            for voice in voices:
+                speak[2] = voice
+                result = subprocess.run(speak, check=False, capture_output=True, timeout=25)
+                if result.returncode == 0:
+                    break
+            if result.returncode:
+                raise AudioError("Install the selected voice in macOS speech settings or use eSpeak NG.")
         if result.returncode:
             raise AudioError("The local speech engine could not read this briefing.")
         subprocess.run(encode, check=True, capture_output=True, timeout=25)
@@ -131,8 +135,9 @@ def synthesize(settings: Settings, briefing: Briefing, local: bool) -> AudioAsse
     else:
         provider = "local"
         payload = None
+        version = "v4" if sys.platform == "darwin" else "v3"
         cache_input = [
-            briefing.script, provider, f"local-v2-{sys.platform}", profile.voice,
+            briefing.script, provider, f"local-{version}-{sys.platform}", profile.voice,
             profile.language, profile.tone, "mp3_44100_64",
         ]
     key = sha256(json.dumps(cache_input, ensure_ascii=False).encode()).hexdigest()

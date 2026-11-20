@@ -1,6 +1,6 @@
 # The Liquid Briefing
 
-A local newsroom demo for Sourcera. Generate an audio briefing and a separate short read from the same historical news edition. Open a story’s transcript to see the sources for each spoken claim.
+A local newsroom demo for Sourcera. Pick interests, an audio language, a voice, a length and a level of detail. Generate a personalized briefing with four or five spoken stories. Play or download the MP3 and open any story’s transcript for its sources.
 
 ## Run it
 
@@ -10,18 +10,18 @@ With Docker Desktop running and the supplied JSONL files in `liquid-briefing-dat
 docker compose up --build
 ```
 
-Open [the briefing studio](http://localhost:8000/) or [the API docs](http://localhost:8000/docs). The container imports the mounted feeds at startup, persists its results in SQLite, and can generate English and Dutch MP3s using its bundled local speech engine.
+Open [the briefing studio](http://localhost:8000/) or [the API docs](http://localhost:8000/docs). The container imports the mounted feeds at startup, persists its results in SQLite, and can generate English, Dutch and German MP3s using its bundled local speech engine.
 
 To use the hosted providers, copy `.env.example` to `.env` and set either or both keys. Recreate the container after changing `.env`.
 
 | Setting | What it enables |
 | --- | --- |
-| `OPENAI_API_KEY` | Uses Structured Outputs to choose and order approved stories and fact IDs. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. |
-| `ELEVENLABS_API_KEY` | Synthesizes audio with Eleven v4 and exports a 128 kbps MP3. The four optional voice settings let you select voice IDs for each language and voice choice. |
+| `OPENAI_API_KEY` | Enables optional Structured Outputs editorial selection for API requests with free-text interests. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. The studio ranks its selected topics locally. |
+| `ELEVENLABS_API_KEY` | Synthesizes audio with Eleven v4 and exports a 128 kbps MP3. Optional voice IDs are configured per language in `.env.example`. |
 
-The local editor works without OpenAI. The browser offers local narration if ElevenLabs fails. Local speech uses system voices on macOS and eSpeak NG in Docker. Available macOS voices depend on which voices are installed.
+The local editor works without OpenAI. The studio automatically tries local narration when ElevenLabs fails. Local speech uses eSpeak NG in Docker or installed system voices on macOS.
 
-ElevenLabs runs when audio is requested. Identical scripts, voices, model settings and output formats share the same cached MP3 across briefings, playback and downloads. For bulk editions where lower cost matters, set `ELEVENLABS_MODEL=eleven_v4_turbo`. [ElevenLabs API pricing](https://elevenlabs.io/pricing/api)
+The studio requests audio as part of generating a briefing. Identical scripts, voices, model settings and output formats share the same cached MP3 across briefings, playback and downloads. For bulk editions where lower cost matters, set `ELEVENLABS_MODEL=eleven_v4_turbo`. [ElevenLabs API pricing](https://elevenlabs.io/pricing/api)
 
 ### Run from Python
 
@@ -37,27 +37,31 @@ Use `.venv/bin/python -m briefing.ingest --force` to rerun ingestion. Restart th
 
 ## Five-minute demo
 
-1. Click **Run U.S. producer-price story** for the one-story replay on 18 November 2026. Open **Transcript & sources** to verify the 0.3% monthly figure, 0.4% forecast and 6.5% annual figure in the linked Invezz and ActionForex coverage.
-2. Switch to **Dutch investor** on the same date. Play the Dutch briefing and compare its story selection and level of detail. Intel’s story preserves the distinction between shareholders’ allegations and established facts.
-3. Choose **Custom listener**, enter `Bitcoin, gold`, and generate a new edition. Try `Nvidia` with **Analytical** depth to see the two reported analyst estimates side by side. Change the replay date to see how the publication cutoff affects available stories.
-4. Download **Text** and **MP3**. The text is independently readable and carries the links. The audio adds context and names the reporting outlet and date.
+1. Generate the **FX desk** edition. Open **Transcript & sources** on the lead story and check the 0.3% monthly rise, the 0.4% forecast and the 6.5% annual rate.
+2. Generate **Dutch investor**. Its four stock-market stories include separate estimates from ActionForex and Invezz. Look for the disagreement label on Nvidia and the allegation label on Intel.
+3. Generate **Wildcard Listener**. Its four German stories cover science, aviation, film and design. Open **Interests**, search for `bitcon` and select **Cryptocurrency** from the closest topics. Remove **Culture & design** and generate again to hear Bitcoin take the place of the Rubik’s Cube.
+4. Change **Voice** and generate again to hear the alternate narration. Play the briefing or click **Download Audio**. Both use the generated MP3.
+
+The interest picker counts distinct reviewed matches. When a narrow selection covers fewer than four stories, add another interest to fill the edition. One-minute editions cover four stories. Longer editions can cover five.
+
+[Judging evaluation and benchmark](EVALUATION.md)
 
 ## API and delivery
 
 | Endpoint | Result |
 | --- | --- |
-| `GET /api/replay` | Replay defaults, preset profiles and ingestion statistics |
-| `POST /api/briefings` | Saves a briefing and returns its ID, short read, claims and sources. Pass an optional `story_id` to focus on one reviewed story. |
+| `GET /api/replay` | Replay defaults, preset profiles, available interest IDs and ingestion statistics |
+| `POST /api/briefings` | Saves a briefing and returns its ID, topic matches, claims and sources. Send interest IDs as an array for the studio's ranking or send a free-text string. Pass an optional `story_id` to focus on one reviewed story. |
 | `GET /api/briefings/{id}` | Retrieves the saved briefing JSON |
 | `POST /api/briefings/{id}/audio` | Creates or reuses the MP3 and returns its playback URL |
 | `GET /api/briefings/{id}/audio` | Streams the MP3. Add `?download=true` for an attachment. |
 | `GET /api/briefings/{id}/message` | Returns the formatted text with source links. Add `?download=true` for an attachment. |
 
-A future n8n workflow can generate a briefing, generate its audio, then fetch the text and binary MP3 from those endpoints. A self-hosted n8n instance needs network access to the app. The Compose service binds to localhost for this demo.
+A newsroom scheduler can generate an approved edition, request its audio, then fetch the text and MP3 for a newsletter or app. The Compose service binds to localhost for this demo.
 
 ## Data and review
 
-The ingestion path normalizes all six feeds to local SQLite. Exact duplicates and likely translated editions share an edition ID. Cross-publisher event groups and English and Dutch wording are editor-reviewed in `briefing/catalog.py`. Each fact must pass an anchor check against the article body. The replay uses a seven-day lookback and only considers evidence published by the requested time. Add new events by reviewing their source bodies and adding them to the catalog.
+The ingestion path normalizes all six feeds to local SQLite. Exact duplicates and likely translated editions share an edition ID. Cross-publisher event groups and all English, Dutch and German briefing wording are reviewed in `briefing/catalog.py`. Each fact must pass an anchor check against the article body. The studio uses the 18 November replay. The API accepts other cutoffs and uses a seven-day lookback. Matching is limited to reviewed stories, with coverage across markets, technology, travel, culture, science and entertainment.
 
 OpenAI gets a shortlist of approved paraphrases and returns IDs. The server validates them and renders the approved text and attribution. ElevenLabs receives the finished script. Ingestion itself uses no hosted API calls. The JSON response records token usage for the optional editorial pass, and speech costs depend on the generated script length and provider.
 

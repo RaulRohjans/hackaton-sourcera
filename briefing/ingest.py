@@ -1,10 +1,12 @@
 import argparse
+from bisect import bisect_left, bisect_right
 from collections import Counter, defaultdict
 from dataclasses import astuple, dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 import json
 import logging
+from operator import itemgetter
 from pathlib import Path
 import re
 import unicodedata
@@ -15,7 +17,7 @@ from .storage import connect, initialize
 
 LOG = logging.getLogger(__name__)
 NUMBER = re.compile(r"\d+(?:[.,]\d+)*")
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 def clean(value) -> str:
@@ -79,7 +81,10 @@ def group_editions(articles: list[Article]) -> None:
     by_author = defaultdict(list)
     for article in articles:
         if article.feed == "invezz_en" and article.author:
-            by_author[article.author.casefold()].append(article)
+            when = datetime.fromisoformat(article.published_at).timestamp()
+            by_author[article.author.casefold()].append((when, article.id, number_signature(article)))
+    for originals in by_author.values():
+        originals.sort(key=itemgetter(0))
 
     # A translated edition needs a matching byline, publication window and body figures.
     used = set()
@@ -87,42 +92,45 @@ def group_editions(articles: list[Article]) -> None:
         if article.feed not in {"invezz_nl", "invezz_de"}:
             continue
         signature = number_signature(article)
-        when = datetime.fromisoformat(article.published_at)
+        when = datetime.fromisoformat(article.published_at).timestamp()
+        originals = by_author[article.author.casefold()]
+        start = bisect_left(originals, when - 900, key=itemgetter(0))
+        end = bisect_right(originals, when + 900, key=itemgetter(0))
         candidates = []
-        for original in by_author[article.author.casefold()]:
-            if (original.id, article.language) in used:
+        for published, original_id, other in originals[start:end]:
+            if (original_id, article.language) in used:
                 continue
-            gap = abs((when - datetime.fromisoformat(original.published_at)).total_seconds())
-            if gap > 900:
-                continue
-            other = number_signature(original)
             common = signature & other
             overlap = len(common) / max(len(signature | other), 1)
             if len(common) >= 3 and overlap >= 0.5:
-                candidates.append((overlap, -gap, original.id))
+                candidates.append((overlap, -abs(when - published), original_id))
         if candidates:
             article.edition_id = max(candidates)[2]
             used.add((article.edition_id, article.language))
 
     seen_url = {}
     seen_body = {}
-    aliases = {}
+    groups = {article.id: article.edition_id for article in articles}
+
+    def group_for(article_id: str) -> str:
+        while groups[article_id] != article_id:
+            groups[article_id] = groups[groups[article_id]]
+            article_id = groups[article_id]
+        return article_id
+
     for article in sorted(articles, key=lambda a: (a.published_at, a.id)):
         url = urlsplit(article.url)
         key = (url.hostname, url.path.rstrip("/"))
         digest = sha256(article.body.casefold().encode()).digest()
-        group = seen_url.get(key) or seen_body.get(digest) or article.edition_id
-        if group != article.edition_id:
-            aliases[article.edition_id] = group
-        seen_url[key] = seen_body[digest] = group
-
+        group = group_for(article.id)
+        for duplicate in (seen_url.get(key), seen_body.get(digest)):
+            if duplicate is not None:
+                earlier = group_for(duplicate)
+                groups[group] = earlier
+                group = earlier
+        seen_url[key] = seen_body[digest] = article.id
     for article in articles:
-        group = article.edition_id
-        visited = set()
-        while group in aliases and group not in visited:
-            visited.add(group)
-            group = aliases[group]
-        article.edition_id = min(visited) if group in visited else group
+        article.edition_id = group_for(article.id)
 
 
 def import_feeds(data_dir: Path, database: Path, force: bool = False) -> dict:

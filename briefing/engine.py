@@ -11,11 +11,13 @@ from pydantic import BaseModel
 from .catalog import STORIES, FactReview, StoryReview
 from .config import Settings
 from .ingest import clean
+from .interests import INTERESTS
 from .models import Briefing, BriefingRequest, BriefingStory, Claim, Source, Usage
 from .storage import connect
 
 LOG = logging.getLogger(__name__)
-STOP_WORDS = {"us", "uk", "the", "and", "of", "in", "on", "for", "de", "en", "van", "het"}
+STOP_WORDS = {"us", "uk", "the", "and", "of", "in", "on", "for", "de", "en", "van", "het",
+              "der", "die", "das", "und", "im", "von", "für"}
 
 SYNONYMS = {
     "cpi": ("inflation", "inflatie"),
@@ -29,6 +31,7 @@ SYNONYMS = {
     "ai": ("ai stocks", "anthropic"),
     "interest rates": ("central banks", "federal reserve"),
 }
+REPLAY_LOOKBACK = timedelta(days=7)
 
 
 @dataclass
@@ -112,40 +115,53 @@ def words(value: str) -> str:
     return " ".join(re.findall(r"[^\W_]+", value))
 
 
+def keyword_matcher(interests: str):
+    query = f" {words(interests)} "
+    tokens = set(query.split()) - STOP_WORDS
+    expanded = {topic for key, topics in SYNONYMS.items()
+                if f" {key} " in query for topic in topics}
+
+    def match(story: StoryReview) -> dict[str, float]:
+        matches = {}
+        for topic in story.topics:
+            term = words(topic)
+            overlap = (set(term.split()) - STOP_WORDS) & tokens
+            if f" {term} " in query:
+                matches[topic] = 3 + len(term.split())
+            elif term in expanded:
+                matches[topic] = 2.5
+            elif overlap:
+                matches[topic] = 0.6 * len(overlap)
+        return matches
+
+    return match
+
+
 def rank(catalog: list[VerifiedStory], request: BriefingRequest) -> list[Candidate]:
     profile = request.profile
     as_of = request.as_of.astimezone(timezone.utc)
-    query = words(profile.interests)
-    tokens = set(query.split()) - STOP_WORDS
-    expanded = {topic for key, topics in SYNONYMS.items()
-                if f" {key} " in f" {query} " for topic in topics}
+    interests = profile.interests
+    structured = isinstance(interests, list)
+    if structured:
+        def match(story: StoryReview) -> dict[str, float]:
+            return {INTERESTS[key].labels[profile.language]: 0.15 for key in interests
+                    if story.id in INTERESTS[key].story_ids}
+    else:
+        match = keyword_matcher(interests)
     candidates = []
     for story in catalog:
         if request.story_id is not None and story.review.id != request.story_id:
             continue
         age = as_of - story.published_at
-        if not timedelta(0) <= age <= timedelta(days=7):
+        if not timedelta(0) <= age <= REPLAY_LOOKBACK:
             continue
-        matches = []
-        match_scores = []
-        for topic in story.review.topics:
-            term = words(topic)
-            overlap = (set(term.split()) - STOP_WORDS) & tokens
-            if f" {term} " in f" {query} ":
-                matches.append(topic)
-                match_scores.append(3 + len(term.split()))
-            elif term in expanded:
-                matches.append(topic)
-                match_scores.append(2.5)
-            elif overlap:
-                matches.append(topic)
-                match_scores.append(0.6 * len(overlap))
+        matches = match(story.review)
         if not matches and request.story_id is None:
             continue
 
         claims = []
         for fact, sources in story.facts:
-            if fact.detail and profile.depth == "essentials":
+            if fact.detail and profile.depth == "essentials" and not (structured and fact.kind == "comparison"):
                 continue
             eligible = [source for source in sources if source.published_at <= as_of]
             if not eligible or (fact.requires_all and len(eligible) != len(sources)):
@@ -160,12 +176,31 @@ def rank(catalog: list[VerifiedStory], request: BriefingRequest) -> list[Candida
             claims.append(Claim(id=fact.id, kind=fact.kind, text=text, spoken=speech, sources=eligible))
         if not claims or claims[0].id != story.review.facts[0].id:
             continue
-        score = 2 * max(match_scores, default=0) + sum(match_scores) + story.review.priority * 0.2
-        score -= age.total_seconds() / 86400 * 0.13
+        scores = matches.values()
+        priority_weight = 0.25 if structured else 0.2
+        score = 2 * max(scores, default=0) + sum(scores) + story.review.priority * priority_weight
+        score -= age.total_seconds() / 86400 * (0.06 if structured else 0.13)
         candidates.append(Candidate(
-            story.review.id, story.review.titles[profile.language], score, matches, claims
+            story.review.id, story.review.titles[profile.language], score, list(matches), claims
         ))
     return sorted(candidates, key=lambda c: (-c.score, c.id))
+
+
+def cover_interests(candidates: list[Candidate], limit: int) -> list[Candidate]:
+    covered = set()
+    picks = set()
+    for candidate in candidates:
+        if covered.issuperset(candidate.matched_topics):
+            continue
+        picks.add(candidate.id)
+        covered.update(candidate.matched_topics)
+        if len(picks) == limit:
+            break
+    for candidate in candidates:
+        if len(picks) == limit:
+            break
+        picks.add(candidate.id)
+    return [candidate for candidate in candidates if candidate.id in picks]
 
 
 def choose_with_openai(settings: Settings, request: BriefingRequest, candidates: list[Candidate],
@@ -241,44 +276,87 @@ INTRO = {
         "calm": "Laten we rustig het nieuws doornemen, met een synthetische vertelstem.",
         "conversational": "Hoi. Dit is je korte nieuwsoverzicht, voorgelezen door een synthetische stem.",
     },
+    "de": {
+        "professional": "Hier ist Ihr persönlicher Nachrichtenüberblick, vorgelesen von einer KI-Stimme.",
+        "calm": "Willkommen. Nehmen wir uns einen Moment Zeit für die Nachrichten, vorgelesen von einer KI-Stimme.",
+        "conversational": "Hallo! Hier ist dein kurzer Nachrichtenüberblick, vorgelesen von einer KI-Stimme.",
+    },
+}
+SHORT_INTRO = {
+    "en": "Your Liquid Briefing, read by a synthetic voice.",
+    "nl": "Je nieuwsbriefing, voorgelezen door een synthetische stem.",
+    "de": "Ihr Nachrichtenüberblick, vorgelesen von einer synthetischen Stimme.",
 }
 MONTHS = {
     "en": ("January", "February", "March", "April", "May", "June", "July", "August",
            "September", "October", "November", "December"),
     "nl": ("januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus",
            "september", "oktober", "november", "december"),
+    "de": ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
+           "September", "Oktober", "November", "Dezember"),
+}
+NOTICES = {
+    "en": {
+        "editor": "OpenAI editing was unavailable. The briefing uses the reviewed local selection.",
+        "no_match": "No reviewed stories matched your interests for this edition.",
+        "no_story": "This story is unavailable for this replay date.",
+    },
+    "nl": {
+        "editor": "De redactie via OpenAI was niet beschikbaar. De briefing gebruikt de lokaal gecontroleerde selectie.",
+        "no_match": "Geen gecontroleerde verhalen passen bij je interesses voor deze editie.",
+        "no_story": "Dit verhaal is niet beschikbaar voor deze editie.",
+    },
+    "de": {
+        "editor": "Die Auswahl über OpenAI war nicht verfügbar. Die Ausgabe nutzt die lokal geprüfte Auswahl.",
+        "no_match": "In dieser Ausgabe passt kein geprüfter Beitrag zu Ihren Interessen.",
+        "no_story": "Dieser Beitrag ist für das gewählte Datum nicht verfügbar.",
+    },
 }
 
 
-def attribution(source: Source, language: str) -> str:
+def attribution(source: Source, language: str, concise: bool = False) -> str:
     published = source.published_at
     month = MONTHS[language][published.month - 1]
     outlet = "Action Forex" if source.publisher == "ActionForex" else source.publisher
+    if concise:
+        if outlet == "International Business Times UK":
+            outlet = "I B Times UK"
+        return {
+            "en": f"From {outlet}.",
+            "nl": f"Volgens {outlet}.",
+            "de": f"{outlet} berichtet.",
+        }[language]
     if language == "nl":
         return f"Volgens {outlet}, op {published.day} {month}."
+    if language == "de":
+        return f"{outlet} berichtete am {published.day}. {month}."
     return f"From {outlet}, published {month} {published.day}."
 
 
 def assemble(settings: Settings, catalog: list[VerifiedStory], request: BriefingRequest) -> Briefing:
     profile = request.profile
     language = profile.language
+    structured = isinstance(profile.interests, list)
+    concise = structured and profile.max_minutes == 1
     candidates = rank(catalog, request)
-    story_limit = min({1: 2, 2: 3, 3: 5}[profile.max_minutes], len(candidates))
+    story_counts = {1: 4, 2: 5, 3: 5} if structured else {1: 2, 2: 3, 3: 5}
+    story_limit = min(story_counts[profile.max_minutes], len(candidates))
     fact_limit = 2 if profile.depth == "essentials" or profile.max_minutes == 1 else 3
     shortlisted = candidates[:story_limit + 2]
     selection, usage, notice = None, None, None
-    if candidates and request.use_ai and settings.openai_key:
+    if candidates and request.use_ai and settings.openai_key and not structured:
         plan, usage = choose_with_openai(settings, request, shortlisted, story_limit, fact_limit)
         selection = checked_selection(plan, shortlisted, story_limit, fact_limit)
         if selection is None:
-            notice = "OpenAI editing was unavailable. The briefing uses the reviewed local selection."
+            notice = NOTICES[language]["editor"]
 
     editor = "openai" if selection is not None else "reviewed"
     if selection is None:
-        selection = [(candidate, candidate.claims[:fact_limit]) for candidate in candidates[:story_limit]]
+        picked = cover_interests(candidates, story_limit) if structured else candidates[:story_limit]
+        selection = [(candidate, candidate.claims[:fact_limit]) for candidate in picked]
 
     story_results = []
-    paragraphs = [INTRO[language][profile.tone]]
+    paragraphs = [SHORT_INTRO[language] if concise else INTRO[language][profile.tone]]
     words_per_minute = {"professional": 153, "calm": 137, "conversational": 157}[profile.tone]
     remaining_words = words_per_minute * profile.max_minutes - len(paragraphs[0].split())
     # Give each selected story a chance to fit even in the one-minute edition.
@@ -288,11 +366,15 @@ def assemble(settings: Settings, catalog: list[VerifiedStory], request: Briefing
         included = []
         last_source = None
         for claim in claims:
+            if concise and profile.depth == "essentials" and included and claim.kind != "comparison":
+                continue
             lead = claim.sources[0]
-            credit = attribution(lead, language) if lead.id != last_source else ""
-            segment = " ".join(filter(None, (credit, claim.spoken)))
+            credit = attribution(lead, language, concise) if lead.id != last_source else ""
+            wording = claim.text if concise else claim.spoken
+            segment = " ".join(filter(None, (credit, wording)))
             proposed = " ".join(spoken + [segment])
-            if len(proposed.split()) > story_word_budget and included:
+            required_comparison = structured and claim.kind == "comparison"
+            if len(proposed.split()) > story_word_budget and included and not required_comparison:
                 continue
             last_source = lead.id
             spoken.append(segment)
@@ -310,11 +392,7 @@ def assemble(settings: Settings, catalog: list[VerifiedStory], request: Briefing
             ))
 
     if not story_results:
-        notice = ("Geen gecontroleerde verhalen passen bij je interesses voor deze editie." if language == "nl"
-                  else "No reviewed stories matched those interests for this replay date.")
-        if request.story_id is not None:
-            notice = ("Dit verhaal is niet beschikbaar voor deze editie." if language == "nl"
-                      else "This story is unavailable for this replay date.")
+        notice = NOTICES[language]["no_match" if request.story_id is None else "no_story"]
     script = "\n\n".join(paragraphs) if story_results else ""
     overview = "\n\n".join(f"{story.title}\n{story.summary}" for story in story_results)
     return Briefing(
