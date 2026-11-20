@@ -1,6 +1,6 @@
 # The Liquid Briefing
 
-A local newsroom demo for Sourcera. Set a listener’s interests, audio language, length and level of detail to generate a personalized news briefing. Play or download the MP3 and open any story’s transcript for its sources.
+A local newsroom demo for Sourcera. Pick interests, an audio language, a voice, a length and a level of detail. Generate a personalized briefing with four or five spoken stories. Play or download the MP3 and open any story’s transcript for its sources.
 
 ## Run it
 
@@ -16,7 +16,7 @@ To use the hosted providers, copy `.env.example` to `.env` and set either or bot
 
 | Setting | What it enables |
 | --- | --- |
-| `OPENAI_API_KEY` | Uses Structured Outputs to choose and order approved stories and fact IDs. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. |
+| `OPENAI_API_KEY` | Enables optional Structured Outputs editorial selection for API requests with free-text interests. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. The studio ranks its selected topics locally. |
 | `ELEVENLABS_API_KEY` | Synthesizes audio with Eleven v4 and exports a 128 kbps MP3. Optional voice IDs are configured per language in `.env.example`. |
 
 The local editor works without OpenAI. The studio automatically tries local narration when ElevenLabs fails. Local speech uses eSpeak NG in Docker or installed system voices on macOS.
@@ -37,23 +37,27 @@ Use `.venv/bin/python -m briefing.ingest --force` to rerun ingestion. Restart th
 
 ## Five-minute demo
 
-1. Leave **FX desk** selected and click **Generate briefing**. Play the English markets briefing and open **Transcript & sources** to check the producer-price figures.
-2. Select **Dutch investor** and generate again. Compare its shorter Dutch briefing on Nvidia and Intel with the FX desk’s macroeconomic stories.
-3. Select **Wildcard Listener** and generate its German briefing on U.S. flight delays and the Rubik’s Cube. Change the interests to `Mars, Netflix` and generate again to see the stories change while keeping German selected.
-4. Click **Download Audio** and play the MP3. Each download follows the briefing currently shown in the player.
+1. Generate the **FX desk** edition. Open **Transcript & sources** on the lead story and check the 0.3% monthly rise, the 0.4% forecast and the 6.5% annual rate.
+2. Generate **Dutch investor**. Its four stock-market stories include separate estimates from ActionForex and Invezz. Look for the disagreement label on Nvidia and the allegation label on Intel.
+3. Generate **Wildcard Listener**. Its four German stories cover science, aviation, film and design. Open **Interests**, search for `bitcon` and select **Cryptocurrency** from the closest topics. Remove **Culture & design** and generate again to hear Bitcoin take the place of the Rubik’s Cube.
+4. Change **Voice** and generate again to hear the alternate narration. Play the briefing or click **Download Audio**. Both use the generated MP3.
+
+The interest picker counts distinct reviewed matches. When a narrow selection covers fewer than four stories, add another interest to fill the edition. One-minute editions cover four stories. Longer editions can cover five.
+
+[Judging evaluation and benchmark](EVALUATION.md)
 
 ## API and delivery
 
 | Endpoint | Result |
 | --- | --- |
-| `GET /api/replay` | Replay defaults, preset profiles and ingestion statistics |
-| `POST /api/briefings` | Saves a briefing and returns its ID, short read, claims and sources. Pass an optional `story_id` to focus on one reviewed story. |
+| `GET /api/replay` | Replay defaults, preset profiles, available interest IDs and ingestion statistics |
+| `POST /api/briefings` | Saves a briefing and returns its ID, topic matches, claims and sources. Send interest IDs as an array for the studio's ranking or send a free-text string. Pass an optional `story_id` to focus on one reviewed story. |
 | `GET /api/briefings/{id}` | Retrieves the saved briefing JSON |
 | `POST /api/briefings/{id}/audio` | Creates or reuses the MP3 and returns its playback URL |
 | `GET /api/briefings/{id}/audio` | Streams the MP3. Add `?download=true` for an attachment. |
 | `GET /api/briefings/{id}/message` | Returns the formatted text with source links. Add `?download=true` for an attachment. |
 
-A future n8n workflow can generate a briefing, generate its audio, then fetch the text and binary MP3 from those endpoints. A self-hosted n8n instance needs network access to the app. The Compose service binds to localhost for this demo.
+A newsroom scheduler can generate an approved edition, request its audio, then fetch the text and MP3 for a newsletter or app. The Compose service binds to localhost for this demo.
 
 ## Data and review
 

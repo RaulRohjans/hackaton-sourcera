@@ -9,8 +9,9 @@ from starlette.concurrency import run_in_threadpool
 
 from .audio import AudioError, synthesize
 from .config import PACKAGE, Settings
-from .engine import assemble, load_catalog
+from .engine import assemble, load_catalog, rank
 from .ingest import import_feeds
+from .interests import INTERESTS
 from .models import Briefing, BriefingRequest, PRESETS, REPLAY
 from .storage import connect, initialize
 
@@ -26,6 +27,15 @@ async def lifespan(app: FastAPI):
     settings = Settings()
     app.state.settings = settings
     app.state.stats, app.state.catalog = await run_in_threadpool(load_data, settings)
+    options = BriefingRequest(profile={"interests": list(INTERESTS)})
+    available = {candidate.id for candidate in rank(app.state.catalog, options)}
+    app.state.interests = [
+        {"id": key, "label": interest.labels["en"],
+         "search_terms": [*interest.labels.values(), *interest.aliases],
+         "story_ids": [story_id for story_id in interest.story_ids if story_id in available]}
+        for key, interest in INTERESTS.items()
+        if available.intersection(interest.story_ids)
+    ]
     yield
 
 
@@ -41,7 +51,7 @@ templates = Jinja2Templates(directory=PACKAGE / "templates")
 def studio(request: Request):
     return templates.TemplateResponse(request=request, name="index.html", context={
         "presets": {key: profile.model_dump() for key, profile in PRESETS.items()},
-        "default_profile": PRESETS["fx"],
+        "interests": app.state.interests,
         "replay_date": REPLAY.strftime("%d %B %Y"),
     })
 
@@ -58,6 +68,7 @@ def replay():
         "stories": len(app.state.catalog),
         "as_of": REPLAY,
         "presets": PRESETS,
+        "interests": app.state.interests,
         "audio_provider": "elevenlabs" if app.state.settings.elevenlabs_key else "local",
         "openai_enabled": bool(app.state.settings.openai_key),
     }

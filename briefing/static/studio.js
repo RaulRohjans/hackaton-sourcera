@@ -13,6 +13,14 @@ const retry = byId("retry-audio");
 const storiesPanel = byId("stories-panel");
 const stories = byId("stories");
 const presets = JSON.parse(byId("listener-presets").textContent);
+const interests = JSON.parse(byId("available-interests").textContent);
+const interestField = byId("interest-field");
+const interestToggle = byId("interests");
+const interestMenu = byId("interest-menu");
+const interestSearch = byId("interest-search");
+const interestOptions = byId("interest-options");
+const selectedInterests = new Set();
+const minimumStories = 4;
 
 const COPY = {
   en: {
@@ -20,23 +28,27 @@ const COPY = {
     transcript: "Transcript & sources", count: ["story", "stories"],
     narration: "Synthetic narration", ready: "Audio is ready.",
     creating: "Creating audio…", audioError: "Audio is unavailable. Try again.",
+    flags: { comparison: "Sources differ", allegation: "Allegation", forecast: "Forecast", revision: "Revised figure" },
   },
   nl: {
     language: "Nederlands", locale: "nl-NL", briefing: "Jouw briefing", stories: "In deze briefing",
     transcript: "Transcript & bronnen", count: ["verhaal", "verhalen"],
     narration: "Synthetische vertelstem", ready: "De audio is klaar.",
     creating: "Audio maken…", audioError: "Audio is niet beschikbaar. Probeer het opnieuw.",
+    flags: { comparison: "Bronnen verschillen", allegation: "Beschuldiging", forecast: "Prognose", revision: "Bijgesteld cijfer" },
   },
   de: {
     language: "Deutsch", locale: "de-DE", briefing: "Ihr Nachrichtenüberblick", stories: "In dieser Ausgabe",
     transcript: "Transkript und Quellen", count: ["Beitrag", "Beiträge"],
     narration: "Synthetische Sprecherstimme", ready: "Die Audioausgabe ist fertig.",
     creating: "Audio wird erstellt…", audioError: "Audio ist nicht verfügbar. Bitte erneut versuchen.",
+    flags: { comparison: "Quellen weichen ab", allegation: "Vorwurf", forecast: "Prognose", revision: "Revidierte Zahl" },
   },
 };
 
 let activeRequest;
 let briefing;
+let matchingStoryCount = 0;
 
 function element(tag, text, className) {
   const node = document.createElement(tag);
@@ -47,7 +59,17 @@ function element(tag, text, className) {
 
 function storyCard(story, copy) {
   const article = element("article", null, "story");
-  article.append(element("h3", story.title), element("p", story.summary));
+  article.append(element("h3", story.title));
+  const tags = element("ul", null, "topic-list story-topics");
+  for (const topic of story.matched_topics) {
+    tags.append(element("li", topic, "topic"));
+  }
+  const flags = new Set(story.claims.map((claim) => copy.flags[claim.kind]).filter(Boolean));
+  for (const flag of flags) {
+    tags.append(element("li", flag, "topic claim-flag"));
+  }
+  if (tags.childElementCount) article.append(tags);
+  article.append(element("p", story.summary));
   const details = element("details");
   const claims = element("div", null, "claims");
   const format = new Intl.DateTimeFormat(copy.locale, { dateStyle: "medium", timeZone: "UTC" });
@@ -76,11 +98,119 @@ function showStatus(message, language = "en") {
   status.textContent = message;
 }
 
+function searchText(value) {
+  return value.toLowerCase().normalize("NFD").replace(/\p{M}/gu, "")
+    .replace(/ß/g, "ss").replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function editDistance(first, second) {
+  let previous = Array.from({ length: second.length + 1 }, (_, index) => index);
+  for (let row = 1; row <= first.length; row += 1) {
+    const current = [row];
+    for (let column = 1; column <= second.length; column += 1) {
+      const change = Number(first[row - 1] !== second[column - 1]);
+      current.push(Math.min(previous[column] + 1, current[column - 1] + 1, previous[column - 1] + change));
+    }
+    previous = current;
+  }
+  return previous[second.length];
+}
+
+function searchScore(query, term) {
+  if (term === query) return 0;
+  if (term.startsWith(query)) return 1;
+  if (term.includes(query)) return 2;
+  return 3 + Math.min(...[term, ...term.split(" ")].map(
+    (token) => editDistance(query, token) / Math.max(query.length, token.length)
+  ));
+}
+
+function renderOptions() {
+  const query = searchText(interestSearch.value);
+  const ranked = interests.map((interest) => ({
+    interest,
+    score: query ? Math.min(...interest.search_terms.map((term) => searchScore(query, searchText(term)))) : 0,
+  })).sort((first, second) => first.score - second.score);
+  const bestScore = ranked[0]?.score;
+  const approximate = Boolean(query && bestScore >= 3);
+  byId("interest-suggestions").hidden = !approximate;
+  const matchLimit = query && bestScore === 0 ? 0 : 2;
+  const results = approximate ? ranked.slice(0, 4) : ranked.filter(({ score }) => score <= matchLimit);
+  interestOptions.replaceChildren(...results.map(({ interest }) => {
+    const row = element("label", null, "interest-option");
+    const checkbox = element("input");
+    checkbox.type = "checkbox";
+    checkbox.value = interest.id;
+    checkbox.checked = selectedInterests.has(interest.id);
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) selectedInterests.add(interest.id);
+      else selectedInterests.delete(interest.id);
+      updateInterests();
+      reset();
+    });
+    row.append(checkbox, element("span", interest.label));
+    return row;
+  }));
+}
+
+function setInterestMenu(open, focusToggle = false) {
+  interestMenu.hidden = !open;
+  interestToggle.setAttribute("aria-expanded", String(open));
+  if (open) {
+    interestSearch.value = "";
+    renderOptions();
+    interestSearch.focus();
+  } else if (focusToggle) {
+    interestToggle.focus();
+  }
+}
+
+function updateInterests() {
+  const current = interests.filter(({ id }) => selectedInterests.has(id));
+  matchingStoryCount = new Set(current.flatMap(({ story_ids }) => story_ids)).size;
+  const count = current.length;
+  byId("interest-selection").textContent = count ? count + " selected" : "Choose interests";
+  byId("interest-coverage").textContent = interests.length === 0
+    ? "No reviewed stories are available for this edition."
+    : matchingStoryCount < minimumStories
+      ? "Choose topics covering at least 4 stories (" + matchingStoryCount + " matched)."
+      : matchingStoryCount + " matching stories";
+  byId("selected-interests").replaceChildren(...current.map(({ label, id }) => {
+    const item = element("li");
+    const remove = element("button", null, "topic remove-topic");
+    remove.type = "button";
+    remove.setAttribute("aria-label", "Remove " + label);
+    const cross = element("span", "×");
+    cross.setAttribute("aria-hidden", "true");
+    remove.append(document.createTextNode(label), cross);
+    remove.addEventListener("click", () => {
+      selectedInterests.delete(id);
+      updateInterests();
+      if (!interestMenu.hidden) renderOptions();
+      interestToggle.focus();
+      reset();
+    });
+    item.append(remove);
+    return item;
+  }));
+}
+
+function applyPreset(preset) {
+  selectedInterests.clear();
+  for (const { id } of interests) {
+    if (preset.interests.includes(id)) selectedInterests.add(id);
+  }
+  for (const name of ["language", "voice", "max_minutes", "depth"]) {
+    byId(name).value = preset[name];
+  }
+  updateInterests();
+}
+
 function reset() {
   activeRequest?.abort();
   activeRequest = undefined;
   briefing = undefined;
-  generateButton.disabled = false;
+  generateButton.disabled = matchingStoryCount < minimumStories;
   audio.hidden = true;
   if (audio.hasAttribute("src")) {
     audio.pause();
@@ -166,35 +296,50 @@ async function run(action) {
   } finally {
     if (activeRequest === controller) {
       activeRequest = undefined;
-      generateButton.disabled = false;
+      generateButton.disabled = matchingStoryCount < minimumStories;
     }
   }
 }
 
-form.addEventListener("input", reset);
+interestToggle.addEventListener("click", () => setInterestMenu(interestMenu.hidden));
+interestSearch.addEventListener("input", renderOptions);
+interestSearch.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") event.preventDefault();
+});
+byId("interest-done").addEventListener("click", () => setInterestMenu(false, true));
+interestField.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !interestMenu.hidden) {
+    event.preventDefault();
+    setInterestMenu(false, true);
+  }
+});
+interestField.addEventListener("focusout", (event) => {
+  if (event.relatedTarget && !interestField.contains(event.relatedTarget)) setInterestMenu(false);
+});
+document.addEventListener("pointerdown", (event) => {
+  if (!interestField.contains(event.target)) setInterestMenu(false);
+});
+
+form.addEventListener("change", (event) => {
+  if (event.target.matches("select") && event.target !== listener) reset();
+});
 listener.addEventListener("change", () => {
   const preset = presets[listener.value];
   if (preset) {
-    for (const name of ["interests", "language", "max_minutes", "depth"]) {
-      byId(name).value = preset[name];
-    }
+    setInterestMenu(false);
+    applyPreset(preset);
   } else {
-    byId("interests").focus();
-    byId("interests").select();
+    setInterestMenu(true);
   }
+  reset();
 });
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  if (activeRequest) return;
+  if (activeRequest || matchingStoryCount < minimumStories) return;
   const profile = { ...presets[listener.value], ...Object.fromEntries(new FormData(form)) };
   profile.max_minutes = Number(profile.max_minutes);
-  profile.interests = profile.interests.trim();
-  if (!profile.interests) {
-    showStatus("Enter the topics you want to hear about.");
-    byId("interests").focus();
-    return;
-  }
+  profile.interests = [...selectedInterests];
   reset();
   showStatus("Building your briefing…");
   run(async (signal) => {
@@ -229,3 +374,6 @@ audio.addEventListener("error", () => {
   showStatus(COPY[language].audioError, language);
   retry.hidden = false;
 });
+
+applyPreset(presets[listener.value] || presets.fx);
+reset();
