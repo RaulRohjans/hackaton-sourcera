@@ -17,7 +17,7 @@ class Settings:
         self.openai_key = os.getenv("OPENAI_API_KEY", "").strip()
         self.openai_model = os.getenv("OPENAI_MODEL", "gpt-5.4-mini").strip()
         self.elevenlabs_key = os.getenv("ELEVENLABS_API_KEY", "").strip()
-        self.elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "eleven_flash_v2_5").strip()
+        self.elevenlabs_model = os.getenv("ELEVENLABS_MODEL", "").strip() or "eleven_v4"
 
     @staticmethod
     def voice_id(language: str, voice: str) -> str:

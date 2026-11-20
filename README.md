@@ -17,9 +17,11 @@ To use the hosted providers, copy `.env.example` to `.env` and set either or bot
 | Setting | What it enables |
 | --- | --- |
 | `OPENAI_API_KEY` | Uses Structured Outputs to choose and order approved stories and fact IDs. `OPENAI_MODEL` defaults to `gpt-5.4-mini`. |
-| `ELEVENLABS_API_KEY` | Synthesizes audio on the first Play click with Eleven Flash v2.5. The four optional voice settings let you select voice IDs for each language and voice choice. |
+| `ELEVENLABS_API_KEY` | Synthesizes audio with Eleven v4 and exports a 128 kbps MP3. The four optional voice settings let you select voice IDs for each language and voice choice. |
 
 The local editor works without OpenAI. The browser offers local narration if ElevenLabs fails. Local speech uses system voices on macOS and eSpeak NG in Docker. Available macOS voices depend on which voices are installed.
+
+ElevenLabs runs when audio is requested. Identical scripts, voices, model settings and output formats share the same cached MP3 across briefings, playback and downloads. For bulk editions where lower cost matters, set `ELEVENLABS_MODEL=eleven_v4_turbo`. [ElevenLabs API pricing](https://elevenlabs.io/pricing/api)
 
 ### Run from Python
 

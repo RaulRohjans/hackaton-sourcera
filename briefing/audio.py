@@ -16,7 +16,7 @@ from .config import Settings
 from .models import Briefing
 
 LOG = logging.getLogger(__name__)
-FORMAT = "mp3_44100_64"
+ELEVENLABS_FORMAT = "mp3_44100_128"
 SPEED = {"calm": 0.9, "professional": 1.0, "conversational": 1.04}
 LOCKS = tuple(Lock() for _ in range(16))
 
@@ -33,26 +33,35 @@ class AudioAsset:
     provider: str
 
 
-def elevenlabs(settings: Settings, briefing: Briefing, voice: str, output: Path) -> None:
+def elevenlabs_payload(settings: Settings, briefing: Briefing) -> dict:
+    profile = briefing.profile
+    model = settings.elevenlabs_model
+    voice_settings = {
+        "stability": 0.62 if profile.tone == "calm" else 0.5,
+        "similarity_boost": 0.75,
+    }
+    if model not in {"eleven_v3", "eleven_v4", "eleven_v4_turbo"}:
+        voice_settings["speed"] = SPEED[profile.tone]
+    payload = {
+        "text": briefing.script,
+        "model_id": model,
+        "voice_settings": voice_settings,
+    }
+    if model != "eleven_multilingual_v2":
+        payload["language_code"] = profile.language
+    return payload
+
+
+def elevenlabs(settings: Settings, voice: str, payload: dict, output: Path) -> None:
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", voice):
         raise AudioError("Check the ElevenLabs voice ID in the server configuration.")
-    profile = briefing.profile
     try:
         with httpx.Client(timeout=httpx.Timeout(45.0, connect=5.0)) as client:
             response = client.post(
                 f"https://api.elevenlabs.io/v1/text-to-speech/{voice}",
                 headers={"xi-api-key": settings.elevenlabs_key, "Accept": "audio/mpeg"},
-                params={"output_format": FORMAT},
-                json={
-                    "text": briefing.script,
-                    "model_id": settings.elevenlabs_model,
-                    "language_code": profile.language,
-                    "voice_settings": {
-                        "stability": 0.62 if profile.tone == "calm" else 0.5,
-                        "similarity_boost": 0.75,
-                        "speed": SPEED[profile.tone],
-                    },
-                },
+                params={"output_format": ELEVENLABS_FORMAT},
+                json=payload,
             )
             response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -113,13 +122,20 @@ def local_speech(briefing: Briefing, directory: Path, output: Path) -> None:
 def synthesize(settings: Settings, briefing: Briefing, local: bool) -> AudioAsset:
     if not briefing.script:
         raise AudioError("This briefing has no stories to narrate.", 409)
-    provider = "elevenlabs" if settings.elevenlabs_key and not local else "local"
     profile = briefing.profile
-    voice = settings.voice_id(profile.language, profile.voice) if provider == "elevenlabs" else profile.voice
-    model = settings.elevenlabs_model if provider == "elevenlabs" else f"local-v2-{sys.platform}"
-    key = sha256(json.dumps([
-        briefing.script, provider, model, voice, profile.language, profile.tone, FORMAT,
-    ], ensure_ascii=False).encode()).hexdigest()
+    if settings.elevenlabs_key and not local:
+        provider = "elevenlabs"
+        voice = settings.voice_id(profile.language, profile.voice)
+        payload = elevenlabs_payload(settings, briefing)
+        cache_input = [provider, voice, ELEVENLABS_FORMAT, payload]
+    else:
+        provider = "local"
+        payload = None
+        cache_input = [
+            briefing.script, provider, f"local-v2-{sys.platform}", profile.voice,
+            profile.language, profile.tone, "mp3_44100_64",
+        ]
+    key = sha256(json.dumps(cache_input, ensure_ascii=False).encode()).hexdigest()
     asset = AudioAsset(f"{key}.mp3", provider)
     settings.audio_dir.mkdir(parents=True, exist_ok=True)
     final_path = settings.audio_dir / asset.filename
@@ -130,8 +146,8 @@ def synthesize(settings: Settings, briefing: Briefing, local: bool) -> AudioAsse
         with TemporaryDirectory(dir=settings.audio_dir) as temp:
             directory = Path(temp)
             output = directory / "briefing.mp3"
-            if provider == "elevenlabs":
-                elevenlabs(settings, briefing, voice, output)
+            if payload is not None:
+                elevenlabs(settings, voice, payload, output)
             else:
                 local_speech(briefing, directory, output)
             if not output.is_file() or output.stat().st_size == 0:
