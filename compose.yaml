@@ -1,0 +1,14 @@
+services:
+  briefing:
+    build: .
+    ports:
+      - "127.0.0.1:${BRIEFING_PORT:-8000}:8000"
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./liquid-briefing-data:/data:ro
+      - briefing-state:/var/lib/liquid-briefing
+
+volumes:
+  briefing-state:

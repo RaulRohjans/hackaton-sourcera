@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f6f5ef">
+  <title>The Liquid Briefing · Studio</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/studio.css') }}">
+  <script src="{{ url_for('static', path='/studio.js') }}" defer></script>
+</head>
+<body>
+  <header class="site-header">
+    <div class="masthead">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        <span>The Liquid Briefing</span>
+      </a>
+      <nav aria-label="Studio links">
+        <span class="partner">Sourcera <span class="dot">·</span> MAIN AI Hackathon</span>
+        <a class="api-link" href="/docs">API docs <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="workspace">
+    <header class="workspace-heading">
+      <div>
+        <h1>Briefing studio</h1>
+        <p>A news edition tuned to your listener, with sources for every claim.</p>
+      </div>
+      <div class="replay-stats"><span class="replay-indicator"></span><span id="replay-stats">Historical replay</span></div>
+    </header>
+
+    <div class="studio-grid">
+      <aside class="settings" aria-labelledby="settings-title">
+        <div class="settings-heading"><h2 id="settings-title">Listener</h2><span class="settings-divider"></span></div>
+        <div class="preset-list" aria-label="Listener presets">
+          <button type="button" class="preset is-selected" data-preset="fx" aria-pressed="true">
+            <span class="preset-icon preset-fx" aria-hidden="true">↗</span>
+            <span><strong>FX desk</strong><small>English · Macro &amp; currencies</small></span>
+            <span class="radio" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="preset" data-preset="retail" aria-pressed="false">
+            <span class="preset-icon preset-retail" aria-hidden="true">◎</span>
+            <span><strong>Dutch investor</strong><small>Dutch · Equities &amp; tech</small></span>
+            <span class="radio" aria-hidden="true"></span>
+          </button>
+          <button type="button" class="preset" data-preset="custom" aria-pressed="false">
+            <span class="preset-icon preset-custom" aria-hidden="true">+</span>
+            <span><strong>Custom listener</strong><small>Choose your own interests</small></span>
+            <span class="radio" aria-hidden="true"></span>
+          </button>
+        </div>
+
+        <form id="profile">
+          <label class="field" for="interests">
+            <span>Interests</span>
+            <textarea id="interests" name="interests" rows="2" maxlength="240" required placeholder="e.g. Bitcoin, gold, or eurozone inflation">US producer prices, retail sales, central banks, FX</textarea>
+          </label>
+          <div class="field-grid">
+            <label class="field" for="language">
+              <span>Language</span>
+              <select id="language" name="language">
+                <option value="en">English</option><option value="nl">Dutch</option>
+              </select>
+            </label>
+            <label class="field" for="max_minutes">
+              <span>Length</span>
+              <select id="max_minutes" name="max_minutes">
+                <option value="1">Up to 1 min</option>
+                <option value="2" selected>Up to 2 min</option>
+                <option value="3">Up to 3 min</option>
+              </select>
+            </label>
+            <label class="field" for="depth">
+              <span>Depth</span>
+              <select id="depth" name="depth">
+                <option value="essentials">Essentials</option><option value="analytical" selected>Analytical</option>
+              </select>
+            </label>
+            <label class="field" for="tone">
+              <span>Tone</span>
+              <select id="tone" name="tone">
+                <option value="professional">Professional</option><option value="calm">Calm</option>
+                <option value="conversational">Conversational</option>
+              </select>
+            </label>
+          </div>
+          <label class="field" for="voice">
+            <span>Voice</span>
+            <select id="voice" name="voice">
+              <option value="feminine">Feminine</option><option value="masculine" selected>Masculine</option>
+            </select>
+          </label>
+          <label class="field" for="replay-date">
+            <span>Replay date <small>UTC</small></span>
+            <input type="date" id="replay-date" name="date" value="2026-11-18" required>
+          </label>
+          <button class="generate" type="submit" id="generate">Generate briefing <span aria-hidden="true">→</span></button>
+        </form>
+      </aside>
+
+      <div class="edition" id="edition" aria-busy="true">
+        <section class="player" aria-labelledby="edition-title">
+          <div class="player-heading">
+            <div class="player-copy">
+              <div class="edition-meta"><span id="edition-date">18 NOV 2026</span><span aria-hidden="true">/</span><span id="edition-language">English</span></div>
+              <h2 id="edition-title">FX desk briefing</h2>
+              <p id="edition-label">Loading replay…</p>
+            </div>
+            <div class="hero-wave" id="hero-wave" aria-hidden="true"></div>
+          </div>
+          <div class="player-controls">
+            <button class="play" type="button" id="play" aria-label="Play briefing" disabled><span aria-hidden="true"></span></button>
+            <div class="timeline">
+              <label class="visually-hidden" for="seek">Playback position</label>
+              <input type="range" id="seek" min="0" max="1000" value="0" disabled>
+              <div class="time"><time id="current-time">0:00</time><time id="duration">—</time></div>
+            </div>
+          </div>
+          <audio id="audio" preload="metadata"></audio>
+        </section>
+
+        <div class="status-line">
+          <p id="status" role="status"></p>
+          <button type="button" id="local-audio" class="text-button" hidden>Use local narration</button>
+        </div>
+
+        <section class="readout" aria-labelledby="readout-heading">
+          <header class="readout-heading">
+            <div><h2 id="readout-heading">The short read</h2><p id="readout-label">Open a story’s transcript to verify its spoken claims.</p></div>
+            <div class="downloads">
+              <a id="download-text" class="download" hidden><span aria-hidden="true">↓</span> Text</a>
+              <a id="download-audio" class="download" hidden><span aria-hidden="true">↓</span> MP3</a>
+            </div>
+          </header>
+          <div id="stories" class="story-list"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,7 @@
+**
+!briefing/
+!briefing/**
+!requirements.txt
+!Dockerfile
+**/__pycache__
+**/*.pyc

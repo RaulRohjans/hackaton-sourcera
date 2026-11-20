@@ -1,0 +1,296 @@
+"""The editor-reviewed event catalog for the November replay."""
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class FactReview:
+    id: str
+    kind: str
+    # Overview and spoken wording, respectively. All factual wording is reviewed.
+    en: tuple[str, str]
+    nl: tuple[str, str]
+    # Source alias followed by short, ordered evidence anchors in the article body.
+    evidence: tuple[tuple[str, ...], ...]
+    requires_all: bool = False
+    detail: bool = False
+
+
+@dataclass(frozen=True)
+class StoryReview:
+    id: str
+    titles: dict[str, str]
+    topics: tuple[str, ...]
+    priority: int
+    articles: dict[str, str]
+    facts: tuple[FactReview, ...]
+
+
+STORIES = (
+    StoryReview(
+        "us-ppi", {"en": "U.S. producer prices", "nl": "Amerikaanse producentenprijzen"},
+        ("us producer prices", "ppi", "wholesale inflation", "us inflation", "fx", "federal reserve",
+         "producentenprijzen", "groothandelsinflatie", "verenigde staten"), 10,
+        {
+            "afx": "ACTI-10010414-01M7AP8WCVYF7JHMQF5AF5PSKQ",
+            "en": "INVZ-10009737-01M7AMS30JH9CG20KPB7WFHP1P",
+            "nl": "INVZ-10010408-01M7AP8YTKFS6J0E74GTFXKS4Z",
+            "de": "INVZ-10010403-01M7AP91R04FNA1Y3JBZWX2EVN",
+        },
+        (
+            FactReview(
+                "october-monthly", "reported",
+                ("October producer prices rose 0.3% on the month, below the 0.4% forecast.",
+                 "U.S. producers received zero point three percent more for their goods and services in October than in September. Economists had expected an increase of zero point four percent."),
+                ("Producentenprijzen stegen in oktober met 0,3% op maandbasis, tegen 0,4% verwacht.",
+                 "Amerikaanse producenten kregen in oktober nul komma drie procent meer voor hun goederen en diensten dan in september. Economen hadden een stijging van nul komma vier procent verwacht."),
+                (("afx", "producer prices", "0.3%", "in October", "expectations of 0.4%"),
+                 ("en", "producer price index", "0.3%", "0.4% increase expected"),
+                 ("nl", "producentenprijsindex", "0.3%", "0.4%"),
+                 ("de", "Erzeugerpreisindex", "0,3 %", "0,4 %")),
+            ),
+            FactReview(
+                "october-annual", "reported",
+                ("Annual producer inflation accelerated to 6.5%.",
+                 "The year-over-year figure moved in the other direction. Producer prices were six point five percent higher than a year before."),
+                ("De stijging ten opzichte van een jaar eerder versnelde tot 6,5%.",
+                 "Op jaarbasis versnelde de inflatie bij producenten. De prijzen lagen zes komma vijf procent hoger dan een jaar eerder."),
+                (("afx", "annual PPI inflation", "6.5%"), ("en", "annual headline PPI", "6.5%"),
+                 ("nl", "jaarlijkse", "6.5%"), ("de", "jährliche", "6,5 %")),
+            ),
+            FactReview(
+                "october-exclusions", "reported",
+                ("Excluding food, energy and trade services, prices rose 0.5% on the month.",
+                 "Strip out food, energy and trade services, and producer prices rose zero point five percent from September. That was the second month in a row at that pace."),
+                ("Zonder voeding, energie en handelsdiensten stegen de prijzen met 0,5% op maandbasis.",
+                 "Zonder voeding, energie en handelsdiensten stegen de prijzen met nul komma vijf procent ten opzichte van september. Dat was voor de tweede maand op rij hetzelfde tempo."),
+                (("afx", "excluding food, energy and trade services", "0.5%", "second consecutive month"),),
+                detail=True,
+            ),
+        ),
+    ),
+    StoryReview(
+        "us-retail", {"en": "U.S. retail sales", "nl": "Amerikaanse winkelverkopen"},
+        ("us retail sales", "consumer spending", "fx", "dollar", "winkelverkopen", "consumptie"), 8,
+        {"afx": "ACTI-10010414-01M7NA5BK6CGJSNCX44JT8Z09G",
+         "markets": "ACTI-10010414-01M7NA5BK5JPJ29KTEZZ53FDFZ"},
+        (
+            FactReview(
+                "retail-monthly", "reported",
+                ("October retail sales grew 0.2% on the month, down from 0.8% in September.",
+                 "U.S. retail sales rose just zero point two percent in October from the previous month. That followed an increase of zero point eight percent in September."),
+                ("De winkelverkopen groeiden in oktober met 0,2% op maandbasis, na 0,8% in september.",
+                 "De Amerikaanse winkelverkopen stegen in oktober met nul komma twee procent op maandbasis. In september was de stijging nog nul komma acht procent."),
+                (("afx", "retail sales", "0.8% to 0.2%", "in October"),
+                 ("markets", "October US retail sales", "0.8% to 0.2%")),
+            ),
+            FactReview(
+                "retail-ex-autos", "reported",
+                ("Sales excluding autos rose 0.6%, compared with a 0.4% forecast.",
+                 "Leave out auto sales and spending looks a little stronger. Sales rose zero point six percent against a forecast of zero point four percent."),
+                ("Zonder autoverkopen was de stijging 0,6%, tegen 0,4% verwacht.",
+                 "Zonder auto's ziet het beeld er sterker uit. De verkopen stegen met nul komma zes procent. Economen rekenden op nul komma vier procent."),
+                (("afx", "excluding autos", "0.6%", "consensus of 0.4%"),),
+            ),
+            FactReview(
+                "retail-uncertainty", "analysis",
+                ("The Census Bureau said the overall monthly gain could not be distinguished from zero at the 90% confidence level.",
+                 "There is an important caveat from the Census Bureau. At the ninety percent confidence level, the rise in overall sales was statistically indistinguishable from zero."),
+                ("Volgens het Census Bureau was de totale maandstijging bij 90% betrouwbaarheid niet van nul te onderscheiden.",
+                 "Het Amerikaanse statistiekbureau plaatst een kanttekening. Bij een betrouwbaarheidsniveau van negentig procent was de totale maandstijging statistisch niet van nul te onderscheiden."),
+                (("afx", "Census Bureau", "distinguishable from zero", "90% confidence level"),),
+                detail=True,
+            ),
+        ),
+    ),
+    StoryReview(
+        "uk-cpi", {"en": "U.K. inflation edges up", "nl": "Britse inflatie loopt op"},
+        ("uk inflation", "uk cpi", "bank of england", "boe", "sterling", "fx", "britse inflatie", "pond"), 7,
+        {"afx": "ACTI-10010414-01M7Q2T2W2V6E7RCQX47FZAXXQ"},
+        (
+            FactReview(
+                "uk-headline", "reported",
+                ("U.K. annual inflation climbed to 3.6% in October, with fuel driving much of the increase.",
+                 "British consumer prices were three point six percent higher in October than a year earlier. More expensive motor fuel was a major contributor to the increase."),
+                ("Britse inflatie steeg in oktober naar 3,6%, vooral door duurdere brandstof.",
+                 "Britse consumentenprijzen lagen in oktober drie komma zes procent hoger dan een jaar eerder. Duurdere brandstof droeg sterk bij aan de stijging."),
+                (("afx", "UK headline CPI", "3.6%", "in October", "fuel prices"),),
+            ),
+            FactReview(
+                "uk-core", "reported",
+                ("Core inflation held at 2.8% year over year.",
+                 "Core inflation, which strips out some volatile prices, held at two point eight percent year over year."),
+                ("De kerninflatie bleef 2,8% op jaarbasis.",
+                 "De kerninflatie laat enkele sterk wisselende prijzen buiten beschouwing. Die bleef op twee komma acht procent op jaarbasis."),
+                (("afx", "Core CPI inflation", "2.8%"),),
+            ),
+        ),
+    ),
+    StoryReview(
+        "euro-cpi", {"en": "Eurozone inflation is confirmed", "nl": "Inflatie eurozone bevestigd"},
+        ("eurozone inflation", "ecb", "central banks", "euro", "europe", "fx", "inflatie eurozone", "europa"), 7,
+        {"afx": "ACTI-10010414-01M7QZ4F3HY6BPE904ZYM3719P"},
+        (
+            FactReview(
+                "euro-headline", "reported",
+                ("Eurostat confirmed eurozone inflation of 4.0% in October, up from 3.8% in September.",
+                 "Eurostat confirmed that eurozone prices rose four percent in the year to October. In September, the annual rate was three point eight percent."),
+                ("Eurostat bevestigde 4,0% inflatie in oktober, na 3,8% in september.",
+                 "In oktober lagen de prijzen in de eurozone vier procent hoger dan een jaar eerder, bevestigt Eurostat. In september was dat drie komma acht procent."),
+                (("afx", "Eurozone annual HICP", "3.8% to 4.0%", "in October", "Eurostat"),),
+            ),
+            FactReview(
+                "euro-core", "revision",
+                ("Eurostat revised annual core inflation from 2.5% to 2.6%.",
+                 "The final release put annual core inflation at two point six percent. The preliminary reading was two point five percent."),
+                ("Eurostat stelde de kerninflatie bij van 2,5% naar 2,6%.",
+                 "De definitieve kerninflatie kwam uit op twee komma zes procent op jaarbasis. De eerste schatting was twee komma vijf procent."),
+                (("afx", "core inflation", "2.6%", "preliminary estimate of 2.5%"),),
+            ),
+        ),
+    ),
+    StoryReview(
+        "nvidia-outlook", {"en": "Nvidia lifts revenue expectations", "nl": "Nvidia verwacht meer omzet"},
+        ("nvidia", "semiconductors", "earnings", "ai stocks", "nasdaq", "technology", "techaandelen", "chips", "beurs"), 10,
+        {"afx": "ACTI-10010414-01M7QZ4FMNPN8X11NG0KE4BTT6",
+         "en": "INVZ-10009737-01M7QHXBPJNSJF5KFSMRGG1XRT",
+         "nl": "INVZ-10010408-01M7QZ4JKVBTKPQX0N8QFYH9MH",
+         "de": "INVZ-10010403-01M7QZ4HY468XGAX3SW067VGHV"},
+        (
+            FactReview(
+                "nvidia-guidance", "forecast",
+                ("Nvidia forecast about $130 billion in fourth-quarter revenue, above analyst estimates.",
+                 "Nvidia expects fourth-quarter sales of about one hundred and thirty billion U.S. dollars. That is the company's forecast, and it came in above analyst estimates."),
+                ("Nvidia verwacht ongeveer 130 miljard dollar omzet in het vierde kwartaal, boven de analistenramingen.",
+                 "Nvidia verwacht in het vierde kwartaal ongeveer honderddertig miljard Amerikaanse dollar omzet. Die prognose van het bedrijf ligt boven de ramingen van analisten."),
+                (("afx", "fourth-quarter guidance", "USD 130B", "USD 125.1B consensus"),
+                 ("en", "fourth-quarter revenue", "$130 billion", "$125.25 billion")),
+            ),
+            FactReview(
+                "nvidia-consensus", "comparison",
+                ("The reports cite different analyst estimates for the same quarter: $125.1 billion at ActionForex and $125.25 billion at Invezz.",
+                 "The analyst benchmarks differ slightly between the two reports. Action Forex cites one hundred and twenty-five point one billion dollars, while Invezz cites one hundred and twenty-five point two five billion from L S E G."),
+                ("De bronnen noemen verschillende ramingen: 125,1 miljard dollar bij ActionForex en 125,25 miljard bij Invezz.",
+                 "De analistenramingen verschillen iets per bron. Action Forex noemt honderdvijfentwintig komma één miljard dollar. Invezz noemt honderdvijfentwintig komma twee vijf miljard op basis van cijfers van L S E G."),
+                (("afx", "fourth-quarter guidance", "USD 125.1B consensus"),
+                 ("en", "fourth-quarter revenue", "$125.25 billion", "LSEG")),
+                requires_all=True,
+                detail=True,
+            ),
+            FactReview(
+                "nasdaq-opening", "reported",
+                ("The Nasdaq Composite was up 0.35% in early trading.",
+                 "Early in the U.S. session, the Nasdaq Composite was up zero point three five percent."),
+                ("De Nasdaq Composite stond vroeg in de sessie 0,35% hoger.",
+                 "Vroeg in de Amerikaanse beurssessie stond de Nasdaq Composite nul komma drie vijf procent hoger."),
+                (("en", "opened higher", "Nasdaq Composite gained 0.35%"),
+                 ("nl", "in de handel", "Nasdaq Composite steeg 0,35%")),
+            ),
+        ),
+    ),
+    StoryReview(
+        "intel-lawsuit", {"en": "Intel faces a shareholder lawsuit", "nl": "Aandeelhouders klagen Intel aan"},
+        ("intel", "lawsuit", "shareholder", "semiconductors", "ai stocks", "technology",
+         "techaandelen", "chips", "beurs", "rechtszaak"), 8,
+        {"en": "INVZ-10009737-01M7HXNFGVTSR4PFBV3VDMT1PA",
+         "ibt": "IBTU-10010345-01M7JNQ6RA505ZSJND1Q5P6DB9"},
+        (
+            FactReview(
+                "intel-allegation", "allegation",
+                ("Shareholders allege Intel hid worsening PC demand before raising $23 billion. The claim is an allegation.",
+                 "Shareholders say Intel concealed weakening demand for personal computers before raising twenty-three billion U.S. dollars in a share sale. The accusation comes from a proposed class action."),
+                ("Aandeelhouders stellen dat Intel verzwakkende pc-vraag verzweeg vóór een emissie van 23 miljard dollar.",
+                 "Aandeelhouders stellen dat Intel een zwakkere vraag naar pc's verzweeg voordat het drieëntwintig miljard Amerikaanse dollar ophaalde met een aandelenuitgifte. Het gaat om een beschuldiging in een voorgestelde collectieve rechtszaak."),
+                (("en", "shareholder lawsuit", "concealed worsening personal computer demand", "$23 billion"),
+                 ("ibt", "shareholder class-action", "concealing worsening PC sales", "$23 billion")),
+            ),
+            FactReview(
+                "intel-filing", "reported",
+                ("The proposed class action was filed in California on 13 November.",
+                 "The complaint was filed in California on the thirteenth of November. It names Intel's chief executive and finance chief."),
+                ("De voorgestelde collectieve zaak werd op 13 november ingediend in Californië.",
+                 "De klacht is op dertien november ingediend in Californië. Ze noemt ook de bestuursvoorzitter en de financieel directeur van Intel."),
+                (("en", "filed on 13 November in California", "chief executive", "finance chief"),),
+            ),
+        ),
+    ),
+    StoryReview(
+        "gold-spot", {"en": "Gold falls before Fed minutes", "nl": "Goud daalt vóór publicatie Fed-notulen"},
+        ("gold", "bullion", "commodities", "federal reserve", "fed", "goud", "grondstoffen", "rente"), 7,
+        {"afx": "ACTI-10010414-01M7Q2T3JT54KGKWWAV72SFEJJ",
+         "en": "INVZ-10009737-01M7PXA2GX6QMV1B0KHQXS9GGA",
+         "nl": "INVZ-10010408-01M7Q2T6GXZXA5E95HTCZRWZAZ"},
+        (
+            FactReview(
+                "spot-gold", "reported",
+                ("Spot gold traded near $3,770 per ounce on 18 November.",
+                 "Gold traded at around three thousand seven hundred and seventy U.S. dollars an ounce on Wednesday. The spot price was down more than two percent on the day at the time of reporting."),
+                ("Spotgoud noteerde op 18 november rond 3.770 dollar per ounce.",
+                 "Goud noteerde woensdag rond drieduizend zevenhonderdzeventig Amerikaanse dollar per ounce. Op het moment van berichtgeving was de prijs die dag meer dan twee procent gedaald."),
+                (("en", "Spot gold fell 2.3% to $3,770 an ounce"),
+                 ("nl", "Spotgoud daalde 2.3% naar $3,770 per ounce"),
+                 ("afx", "around 3,770", "down more than 2% on the day")),
+            ),
+            FactReview(
+                "gold-positioning", "analysis",
+                ("ActionForex also pointed to positioning and wider commodity selling as possible factors.",
+                 "Action Forex suggested that market positioning and broader commodity selling may have amplified the move. The article presents them as possible explanations."),
+                ("ActionForex noemt marktpositionering en bredere grondstoffenverkopen als mogelijke factoren.",
+                 "Volgens Action Forex kunnen marktpositionering en verkopen op andere grondstoffenmarkten de daling hebben versterkt. Het gaat om mogelijke verklaringen."),
+                (("afx", "positioning and broad commodity selling as possible amplifiers"),),
+            ),
+        ),
+    ),
+    StoryReview(
+        "bitcoin-spot", {"en": "Bitcoin stays below $65,000", "nl": "Bitcoin blijft onder 65.000 dollar"},
+        ("bitcoin", "btc", "crypto", "cryptocurrency", "cryptomarkt", "digitale valuta"), 7,
+        {"en": "INVZ-10009737-01M7PP563GJBXCBPBGE25BF4GM",
+         "nl": "INVZ-10010408-01M7Q2T6F4RGC2FZR2D9J8QDPA"},
+        (
+            FactReview(
+                "btc-quote", "reported",
+                ("Invezz reported Bitcoin at about $64,620, below $65,000.",
+                 "Bitcoin was trading around sixty-four thousand six hundred and twenty U.S. dollars when the report was written. It was still below the sixty-five thousand dollar level."),
+                ("Invezz meldde een bitcoinkoers van ongeveer 64.620 dollar, onder 65.000 dollar.",
+                 "Toen het bericht verscheen, stond bitcoin rond vierenzestigduizend zeshonderdtwintig Amerikaanse dollar. Dat was nog onder de grens van vijfenzestigduizend dollar."),
+                (("en", "Bitcoin trades around $64,620", "$65,000"),
+                 ("nl", "Bitcoin handelt rond $64,620", "$65,000")),
+            ),
+            FactReview(
+                "btc-recovery", "analysis",
+                ("Invezz saw little evidence of a lasting recovery after the previous week's sell-off.",
+                 "Invezz saw little evidence that the rebound would last after the previous week's sell-off. It pointed to a price still below major daily moving averages."),
+                ("Invezz zag weinig aanwijzingen voor duurzaam herstel na de verkoopgolf van de week ervoor.",
+                 "Invezz zag na de verkoopgolf van de week ervoor weinig aanwijzingen voor duurzaam herstel. De koers lag volgens de analyse nog onder belangrijke voortschrijdende gemiddelden."),
+                (("en", "last week's sharp sell-off", "major daily moving averages", "sustained reversal"),),
+            ),
+        ),
+    ),
+    StoryReview(
+        "anthropic-ipo", {"en": "Anthropic’s reported IPO price", "nl": "Gemelde introductieprijs van Anthropic"},
+        ("anthropic", "claude", "ipo", "ai stocks", "technology", "beursintroductie", "techaandelen", "beurs"), 7,
+        {"en": "INVZ-10009737-01M7RA7FKSX80HJP98G68KDV6K",
+         "nl": "INVZ-10010408-01M7RVEYH40DHBVNNF2YCYJHRP",
+         "de": "INVZ-10010403-01M7RVEXHAV1P7X5F8JD9RFWB6"},
+        (
+            FactReview(
+                "anthropic-reported-price", "reported",
+                ("Invezz relayed a reported IPO price of $83 a share. A prospectus had yet to confirm it.",
+                 "Invezz, citing CNBC and Bloomberg, reported an initial public offering price of eighty-three U.S. dollars a share for Anthropic. The price had yet to be confirmed in a prospectus when the article was published."),
+                ("Invezz meldde een beursintroductieprijs van 83 dollar per aandeel, nog zonder bevestiging in een prospectus.",
+                 "Op basis van CNBC en Bloomberg meldde Invezz een introductieprijs van drieëntachtig Amerikaanse dollar per aandeel voor Anthropic. Toen het bericht verscheen, was die prijs nog niet bevestigd in een prospectus."),
+                (("en", "$83 a share", "CNBC and Bloomberg", "prospectus supplement"),
+                 ("nl", "$83 per aandeel", "CNBC en Bloomberg", "prospectussupplement")),
+            ),
+            FactReview(
+                "anthropic-range", "reported",
+                ("The price range in the earlier filing was $70 to $78 per share.",
+                 "The earlier filing gave a range of seventy to seventy-eight dollars a share. The reported price was five dollars above the upper end."),
+                ("De eerder ingediende bandbreedte was 70 tot 78 dollar per aandeel.",
+                 "In de eerdere aanvraag stond een bandbreedte van zeventig tot achtenzeventig dollar per aandeel. De gemelde prijs lag vijf dollar boven de bovengrens."),
+                (("en", "$83 a share", "$5 above", "$70–$78 range"),
+                 ("nl", "$83 per aandeel", "$5 boven", "$70–$78-range")),
+            ),
+        ),
+    ),
+)
