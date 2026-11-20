@@ -6,7 +6,9 @@ const edition = byId("edition");
 const status = byId("status");
 const audio = byId("audio");
 const play = byId("play");
+const playStatus = "Creating narration…";
 const storyDemo = byId("story-demo");
+const storyDemoHelp = byId("story-demo-help");
 const seek = byId("seek");
 const fallback = byId("local-audio");
 const textDownload = byId("download-text");
@@ -189,6 +191,14 @@ function updateDemoButton() {
   storyDemo.disabled = !replay || generating || loadingAudio;
 }
 
+function updatePlayButton() {
+  play.disabled = generating || loadingAudio || !briefing?.stories.length;
+  play.classList.toggle("is-playing", !audio.paused);
+  play.setAttribute("aria-busy", String(loadingAudio));
+  const label = audio.paused ? "Play briefing" : "Pause briefing";
+  play.setAttribute("aria-label", loadingAudio ? playStatus : label);
+}
+
 async function generate({ useAI = true, storyId = null } = {}) {
   if (generating || (!storyId && !form.reportValidity())) return;
   const preset = activePreset;
@@ -204,7 +214,7 @@ async function generate({ useAI = true, storyId = null } = {}) {
   const asOf = storyId ? replay.as_of : `${byId("replay-date").value}T23:59:59Z`;
   edition.setAttribute("aria-busy", "true");
   byId("generate").disabled = true;
-  play.disabled = true;
+  updatePlayButton();
   audio.pause();
   fallback.hidden = true;
   status.textContent = "Building briefing…";
@@ -223,7 +233,7 @@ async function generate({ useAI = true, storyId = null } = {}) {
     byId("generate").disabled = false;
     generating = false;
     updateDemoButton();
-    play.disabled = loadingAudio || !briefing?.stories.length;
+    updatePlayButton();
   }
 }
 
@@ -238,9 +248,9 @@ async function playBriefing(local = false) {
 
   loadingAudio = true;
   updateDemoButton();
-  play.disabled = true;
+  updatePlayButton();
   fallback.hidden = true;
-  status.textContent = "Creating narration…";
+  status.textContent = playStatus;
   try {
     const result = await jsonRequest(`/api/briefings/${currentId}/audio?local=${local}`, { method: "POST" });
     if (briefing.id !== currentId || generating) return;
@@ -258,7 +268,7 @@ async function playBriefing(local = false) {
   } finally {
     loadingAudio = false;
     updateDemoButton();
-    play.disabled = generating || !briefing?.stories.length;
+    updatePlayButton();
   }
 }
 
@@ -274,12 +284,7 @@ function updateTimeline() {
 }
 
 for (const event of ["loadedmetadata", "timeupdate"]) audio.addEventListener(event, updateTimeline);
-for (const event of ["play", "pause", "ended"]) {
-  audio.addEventListener(event, () => {
-    play.classList.toggle("is-playing", !audio.paused);
-    play.setAttribute("aria-label", audio.paused ? "Play briefing" : "Pause briefing");
-  });
-}
+for (const event of ["play", "pause", "ended"]) audio.addEventListener(event, updatePlayButton);
 audio.addEventListener("error", () => {
   if (!audio.getAttribute("src")) return;
   audio.removeAttribute("src");
@@ -294,7 +299,13 @@ seek.addEventListener("input", () => {
 });
 play.addEventListener("click", () => playBriefing());
 fallback.addEventListener("click", () => playBriefing(true));
+storyDemo.parentElement.addEventListener("pointerenter", () => { storyDemoHelp.hidden = false; });
+storyDemo.addEventListener("focus", () => { storyDemoHelp.hidden = false; });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") storyDemoHelp.hidden = true;
+});
 storyDemo.addEventListener("click", async () => {
+  if (matchMedia("(hover: hover)").matches) storyDemoHelp.hidden = true;
   edition.scrollIntoView({ block: "nearest" });
   const result = await generate({ storyId: storyDemo.dataset.storyId });
   if (result?.stories.length) await playBriefing();
